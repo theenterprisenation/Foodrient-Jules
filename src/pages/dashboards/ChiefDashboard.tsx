@@ -1,7 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Link } from 'react-router-dom';
-import { supabase } from '../../lib/supabase';
-import { AlertCircle, CheckCircle, Users, Settings, BarChart } from 'lucide-react';
+import { supabase, isAdminUser } from '../../lib/supabase';
+import { checkAuthEndpointHealth } from '../../lib/serverCheck';
+import { NetworkMonitor } from '../../utils/networkMonitor';
+import { AlertCircle, CheckCircle, Users, Settings, BarChart, WifiOff } from 'lucide-react';
+
+// Default timeout and retry configuration
+const DEFAULT_TIMEOUT = 15000; // 15 seconds
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [1000, 3000, 5000]; // Progressive retry delays
 
 interface User {
   id: string;
@@ -18,33 +25,140 @@ const ChiefDashboard = () => {
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<string>('customer');
 
+  // State for network status
+  const [isOnline, setIsOnline] = useState(true);
+
   useEffect(() => {
     fetchUsers();
+    checkAdminAccess();
+    
+    // Set up network status listener
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    // Initial check
+    setIsOnline(navigator.onLine);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
   }, []);
 
+  const checkAdminAccess = async () => {
+    const isAdmin = await isAdminUser();
+    if (!isAdmin) {
+      setError('You do not have permission to access this page');
+    }
+  };
+
   const fetchUsers = async () => {
+    setIsLoading(true);
+    setError(null);
+
     try {
-      const { data: profiles, error } = await supabase
-        .from('profiles')
-        .select('id, role, full_name')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      // Fetch email addresses from auth.users
-      const { data: users, error: usersError } = await supabase.auth.admin.listUsers();
+      // Check network connectivity first
+      const networkMonitor = NetworkMonitor.getInstance();
+      if (!networkMonitor.isOnline()) {
+        setIsOnline(false);
+        throw new Error('No internet connection. Please check your network and try again.');
+      }
       
-      if (usersError) throw usersError;
+      // Check server health
+      const health = await checkAuthEndpointHealth();
+      if (!health.healthy) {
+        throw new Error(`Server is currently experiencing issues. Please try again later. (${health.error})`);
+      }
 
-      // Combine profile and user data
-      const combinedData = profiles?.map(profile => ({
+      // Fetch profiles with retry mechanism
+      let profiles = null;
+      let profilesError = null;
+      let attempt = 0;
+      
+      while (attempt <= MAX_RETRIES && !profiles) {
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('id, role, full_name')
+            .order('created_at', { ascending: false });
+          
+          if (error) throw error;
+          profiles = data;
+          break;
+        } catch (error) {
+          profilesError = error;
+          attempt++;
+          
+          if (attempt <= MAX_RETRIES) {
+            console.log(`Fetch profiles attempt ${attempt} failed, retrying in ${RETRY_DELAYS[attempt-1]}ms...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt-1]));
+          }
+        }
+      }
+      
+      if (profilesError && !profiles) throw profilesError;
+      
+      // Fetch user emails with retry mechanism
+      let users = null;
+      let usersError = null;
+      attempt = 0;
+      
+      while (attempt <= MAX_RETRIES && !users) {
+        try {
+          // Get the session
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error('No active session');
+          
+          // Create an abort controller for timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+          
+          // Call the admin-auth function
+          const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-auth`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session?.access_token}`,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({ action: 'listUsers', params: {} }),
+            signal: controller.signal,
+            mode: 'cors',
+            credentials: 'include'
+          });
+          
+          // Clear the timeout
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+          
+          users = await response.json();
+          break;
+        } catch (error) {
+          usersError = error;
+          attempt++;
+          
+          if (attempt <= MAX_RETRIES) {
+            console.log(`Fetch users attempt ${attempt} failed, retrying in ${RETRY_DELAYS[attempt-1]}ms...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt-1]));
+          }
+        }
+      }
+      
+      if (usersError && !users) throw usersError;
+      
+      // Combine the data
+      const combinedData = profiles.map((profile) => ({
         ...profile,
-        email: users.users.find(u => u.id === profile.id)?.email || 'N/A'
+        email: users?.users?.find(u => u.id === profile.id)?.email || 'N/A'
       }));
 
       setUsers(combinedData || []);
     } catch (error: any) {
-      console.error('Error fetching users:', error);
+      console.error('Error fetching users:', error.message || error);
       setError(error.message);
     } finally {
       setIsLoading(false);
@@ -56,14 +170,71 @@ const ChiefDashboard = () => {
       setError('Please select a user and role');
       return;
     }
+    
+    // Check network connectivity
+    const networkMonitor = NetworkMonitor.getInstance();
+    if (!networkMonitor.isOnline()) {
+      setError('No internet connection. Please check your network and try again.');
+      return;
+    }
 
     try {
+      // Implement retry mechanism
+      let result = null;
+      let resultError = null;
+      let attempt = 0;
+      
+      while (attempt <= MAX_RETRIES && !result) {
+        try {
+          // Get the session
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) throw new Error('No active session');
+          
+          // Create an abort controller for timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+          
+          // Call the admin-auth function
+          const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-auth`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session?.access_token}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ 
+              action: 'updateUserRole', 
+              params: { userId: selectedUser, role: selectedRole } 
+            }),
+            signal: controller.signal
+          });
+          
+          // Clear the timeout
+          clearTimeout(timeoutId);
+          
+          if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+          
+          result = await response.json();
+          break;
+        } catch (error) {
+          resultError = error;
+          attempt++;
+          
+          if (attempt <= MAX_RETRIES) {
+            console.log(`Update role attempt ${attempt} failed, retrying in ${RETRY_DELAYS[attempt-1]}ms...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt-1]));
+          }
+        }
+      }
+      
+      if (resultError && !result) throw resultError;
+
+      // Update profile in database
       const { error } = await supabase
         .from('profiles')
         .update({ role: selectedRole })
         .eq('id', selectedUser);
-
-      if (error) throw error;
+        
+      if (error) throw new Error(error.message);
 
       setSuccessMessage('Role updated successfully');
       fetchUsers(); // Refresh user list
@@ -76,13 +247,21 @@ const ChiefDashboard = () => {
       }, 3000);
     } catch (error: any) {
       console.error('Error updating role:', error);
-      setError(error.message);
+      setError(error.message || 'Failed to update user role. Please try again.');
     }
   };
 
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-3xl font-bold mb-8">Chief Dashboard</h1>
+
+      {/* Network Status Alert */}
+      {!isOnline && (
+        <div className="mb-6 p-4 bg-red-50 rounded-lg flex items-center text-red-800">
+          <WifiOff className="h-5 w-5 mr-2" />
+          <p>You are currently offline. Some features may not be available.</p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <div className="bg-white rounded-lg shadow p-6">

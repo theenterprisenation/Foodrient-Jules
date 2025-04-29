@@ -37,6 +37,15 @@ export const MainMenu = () => {
             Blog
           </Link>
           <Link
+            to="/auth/vendor"
+            className={`inline-flex items-center px-1 text-xs font-medium text-gray-900 border-b-2 ${
+              location.pathname === '/auth/vendor' ? 'border-yellow-500' : 'border-transparent hover:border-yellow-500'
+            }`}
+          >
+            <UserPlus className="h-3.5 w-3.5 mr-1" />
+            Become a Vendor
+          </Link>
+          <Link
             to="/faq"
             className={`inline-flex items-center px-1 text-xs font-medium text-gray-900 border-b-2 ${
               location.pathname === '/faq' ? 'border-yellow-500' : 'border-transparent hover:border-yellow-500'
@@ -53,15 +62,6 @@ export const MainMenu = () => {
           >
             <Phone className="h-3.5 w-3.5 mr-1" />
             Contact
-          </Link>
-          <Link
-            to="/vendor-signup"
-            className={`inline-flex items-center px-1 text-xs font-medium text-gray-900 border-b-2 ${
-              location.pathname === '/vendor-signup' ? 'border-yellow-500' : 'border-transparent hover:border-yellow-500'
-            }`}
-          >
-            <UserPlus className="h-3.5 w-3.5 mr-1" />
-            Vendor Sign Up
           </Link>
         </div>
       </div>

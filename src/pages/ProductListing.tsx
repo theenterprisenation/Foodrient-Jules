@@ -459,6 +459,13 @@ const ProductListing = () => {
                 className="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
               />
               <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+             <button
+               type="button"
+               onClick={() => {/* Search is already reactive */}}
+               className="absolute right-3 top-2 px-2 py-1 text-xs bg-yellow-500 text-white rounded hover:bg-yellow-600"
+             >
+               Search
+             </button>
             </div>
             <button
               onClick={() => {

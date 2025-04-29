@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
+import { isAdminUser } from '../lib/supabase';
 
 export interface Advertisement {
   id: string;
@@ -71,6 +72,12 @@ export const useAdvertisementStore = create<AdvertisementState>((set, get) => ({
   createAd: async (ad) => {
     set({ isLoading: true, error: null });
     try {
+      // Check if user has admin privileges
+      const hasAdminAccess = await isAdminUser();
+      if (!hasAdminAccess) {
+        throw new Error('You do not have permission to perform this action');
+      }
+      
       if (!navigator.onLine) {
         throw new Error('No internet connection');
       }
@@ -96,6 +103,12 @@ export const useAdvertisementStore = create<AdvertisementState>((set, get) => ({
   updateAd: async (id, ad) => {
     set({ isLoading: true, error: null });
     try {
+      // Check if user has admin privileges
+      const hasAdminAccess = await isAdminUser();
+      if (!hasAdminAccess) {
+        throw new Error('You do not have permission to perform this action');
+      }
+      
       if (!navigator.onLine) {
         throw new Error('No internet connection');
       }
@@ -122,6 +135,12 @@ export const useAdvertisementStore = create<AdvertisementState>((set, get) => ({
   deleteAd: async (id) => {
     set({ isLoading: true, error: null });
     try {
+      // Check if user has admin privileges
+      const hasAdminAccess = await isAdminUser();
+      if (!hasAdminAccess) {
+        throw new Error('You do not have permission to perform this action');
+      }
+      
       if (!navigator.onLine) {
         throw new Error('No internet connection');
       }

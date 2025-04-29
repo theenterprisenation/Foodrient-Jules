@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, ChevronDown, Store, TrendingUp, Package, Users, Clock, Info, Phone, HelpCircle, Tag, UserPlus } from 'lucide-react';
+import { ShoppingCart, ChevronDown, Store, TrendingUp, Package, Users, Clock } from 'lucide-react';
 import { useGroupBuyStore } from '../store/groupBuyStore';
 import { useFeaturedDealsStore } from '../store/featuredDealsStore';
 import { GroupBuyCard } from '../components/GroupBuyCard';
 import { FeaturedDealCard } from '../components/FeaturedDealCard';
 import { HeroHeader } from '../components/HeroHeader';
+import { MainMenu } from '../components/MainMenu';
 
 const Home = () => {
   const { groupBuys, isLoading: groupBuysLoading, error: groupBuysError, fetchGroupBuys } = useGroupBuyStore();
@@ -36,47 +37,7 @@ const Home = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Main Menu */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-end space-x-6 h-12">
-            <Link
-              to="/about"
-              className="inline-flex items-center px-1 text-xs font-medium text-gray-900 border-b-2 border-transparent hover:border-yellow-500"
-            >
-              <Info className="h-3.5 w-3.5 mr-1" />
-              About Us
-            </Link>
-            <Link
-              to="/products"
-              className="inline-flex items-center px-1 text-xs font-medium text-gray-900 border-b-2 border-transparent hover:border-yellow-500"
-            >
-              <Tag className="h-3.5 w-3.5 mr-1" />
-              Browse Deals
-            </Link>
-            <Link
-              to="/faq"
-              className="inline-flex items-center px-1 text-xs font-medium text-gray-900 border-b-2 border-transparent hover:border-yellow-500"
-            >
-              <HelpCircle className="h-3.5 w-3.5 mr-1" />
-              FAQ
-            </Link>
-            <Link
-              to="/contact"
-              className="inline-flex items-center px-1 text-xs font-medium text-gray-900 border-b-2 border-transparent hover:border-yellow-500"
-            >
-              <Phone className="h-3.5 w-3.5 mr-1" />
-              Contact
-            </Link>
-            <Link
-              to="/vendor-signup"
-              className="inline-flex items-center px-1 text-xs font-medium text-gray-900 border-b-2 border-transparent hover:border-yellow-500"
-            >
-              <UserPlus className="h-3.5 w-3.5 mr-1" />
-              Vendor Sign Up
-            </Link>
-          </div>
-        </div>
-      </div>
+      <MainMenu />
 
       {/* Hero Header */}
       <HeroHeader />

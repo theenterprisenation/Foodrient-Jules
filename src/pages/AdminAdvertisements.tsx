@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Edit, Trash2, ExternalLink } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { useAdvertisementStore, Advertisement } from '../store/advertisementStore';
+import { isAdminUser } from '../lib/supabase';
 import { format } from 'date-fns';
 
 const AdminAdvertisements = () => {
@@ -14,16 +15,28 @@ const AdminAdvertisements = () => {
   const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
-    if (!user) {
-      navigate('/auth');
-      return;
-    }
-    // Fetch ads for all pages
-    Promise.all([
-      fetchAds('products'),
-      fetchAds('group_buys'),
-      fetchAds('featured_deals')
-    ]);
+    const checkAccess = async () => {
+      if (!user) {
+        navigate('/auth');
+        return;
+      }
+      
+      const hasAccess = await isAdminUser();
+      if (!hasAccess) {
+        setError('You do not have permission to access this page');
+        navigate('/');
+        return;
+      }
+      
+      // Fetch ads for all pages
+      Promise.all([
+        fetchAds('products'),
+        fetchAds('group_buys'),
+        fetchAds('featured_deals')
+      ]);
+    };
+    
+    checkAccess();
   }, [user, navigate, fetchAds]);
 
   const handleAddAd = async (e: React.FormEvent) => {

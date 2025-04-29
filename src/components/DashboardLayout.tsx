@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { 
   MessageSquare, 
   Package, 
@@ -10,6 +10,7 @@ import {
   Home
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { navigate } from '../utils/navigation';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -17,12 +18,11 @@ interface DashboardLayoutProps {
 
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const location = useLocation();
-  const navigate = useNavigate();
   const { user, signOut } = useAuthStore();
 
   const handleSignOut = async () => {
     await signOut();
-    navigate('/auth');
+    navigate('/auth', { replace: true });
   };
 
   const getBasePath = () => {

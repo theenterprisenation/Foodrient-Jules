@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { 
   ShoppingBag, 
   Menu, 
@@ -17,6 +17,7 @@ import { useAuthStore } from '../store/authStore';
 import { useCartStore } from '../store/cartStore';
 
 const Navbar = () => {
+  const navigate = useNavigate();
   const { user, signOut } = useAuthStore();
   const { items, total } = useCartStore();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -40,6 +41,12 @@ const Navbar = () => {
     { icon: Users, label: 'Customers', path: `${getBasePath()}/customers` },
     { icon: BarChart, label: 'Analytics', path: `${getBasePath()}/analytics` }
   ] : [];
+  
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/auth', { replace: true });
+    setIsMenuOpen(false);
+  };
 
   return (
     <nav className="bg-white shadow-lg">
@@ -113,6 +120,14 @@ const Navbar = () => {
                       </div>
                       
                       {/* Menu Items */}
+                     <Link
+                       to="/cart"
+                       className="flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-yellow-50"
+                       onClick={() => setIsMenuOpen(false)}
+                     >
+                       <ShoppingCart className="h-5 w-5 mr-3" />
+                       Cart
+                     </Link>
                       {menuItems.map((item) => (
                         <Link
                           key={item.path}
@@ -127,10 +142,7 @@ const Navbar = () => {
                       
                       {/* Sign Out Button */}
                       <button
-                        onClick={() => {
-                          signOut();
-                          setIsMenuOpen(false);
-                        }}
+                        onClick={handleSignOut}
                         className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                       >
                         <LogOut className="h-5 w-5 mr-3" />

@@ -65,7 +65,7 @@ export const Footer = () => {
                 </button>
               </li>
               <li>
-                <button onClick={() => handleNavigation('/vendor-signup')} className="text-gray-400 hover:text-white transition-colors flex items-center">
+                <button onClick={() => handleNavigation('/auth/vendor')} className="text-gray-400 hover:text-white transition-colors flex items-center">
                   <UserPlus className="h-4 w-4 mr-1" />
                   Become a Vendor
                 </button>

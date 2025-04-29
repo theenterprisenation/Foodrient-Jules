@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { AlertCircle, ArrowLeft, ShoppingBag, Eye, EyeOff } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ShoppingBag, Eye, EyeOff, Loader, WifiOff, RefreshCw } from 'lucide-react';
+import { handleAuthError } from '../utils/auth-helpers';
+import { NetworkMonitor } from '../utils/networkMonitor';
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -12,54 +14,89 @@ const Auth = () => {
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const navigate = useNavigate();
-  const { signIn, signUp, resetPassword, getDashboardRoute } = useAuthStore();
+  const [status, setStatus] = useState<'idle' | 'loading' | 'timeout' | 'error' | 'success'>('idle');
+  const [retryCount, setRetryCount] = useState(0);
+  const { user, signIn, signUp, resetPassword } = useAuthStore();
+  const location = useLocation();
+  const [loginTimeout, setLoginTimeout] = useState<NodeJS.Timeout | null>(null);
+
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const hasAttemptedRedirect = useRef(false);
 
   // Reset error when switching forms
   useEffect(() => {
     setError('');
     setSuccessMessage('');
+    setStatus('idle');
+    setRetryCount(0);
   }, [isLogin, isForgotPassword]);
+
+  // Clear timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (loginTimeout) {
+        clearTimeout(loginTimeout);
+      }
+    };
+  }, [loginTimeout]);
+
+  const checkNetworkConnectivity = () => {
+    return NetworkMonitor.getInstance().isOnline();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccessMessage('');
+    setStatus('loading');
+
+    // Check network connectivity first
+    if (!checkNetworkConnectivity()) {
+      setError('No internet connection. Please check your network and try again.');
+      setStatus('error');
+      return;
+    }
+
     setIsSubmitting(true);
+
+    // Set a timeout to prevent hanging indefinitely - increased to 20 seconds
+    const timeout = setTimeout(() => {
+      setError('The request is taking longer than expected. Please check your connection and try again.');
+      setStatus('timeout');
+      setRetryCount(prev => prev + 1);
+      setIsSubmitting(false);
+    }, 25000); // 25 seconds timeout
+    
+    setLoginTimeout(timeout);
 
     try {
       if (isForgotPassword) {
         await resetPassword(email);
         setSuccessMessage('Password reset instructions have been sent to your email.');
+        setStatus('success');
+        clearTimeout(timeout);
+        setLoginTimeout(null);
         return;
       }
 
       if (isLogin) {
         await signIn(email, password);
-        navigate(getDashboardRoute());
+        setStatus('success');
+        // Redirect will be handled by auth state change handler
       } else {
         await signUp(email, password);
         setSuccessMessage('Account created successfully! Please check your email to verify your account.');
+        setStatus('success');
       }
-    } catch (err: any) {
-      let errorMessage = 'An unexpected error occurred. Please try again.';
-      
-      // Handle specific error cases
-      if (err.message.includes('Invalid login credentials')) {
-        errorMessage = 'Invalid email or password. Please check your credentials and try again.';
-      } else if (err.message.includes('Email not confirmed')) {
-        errorMessage = 'Please verify your email address before signing in.';
-      } else if (err.message.includes('Password should be')) {
-        errorMessage = 'Password must be at least 6 characters long.';
-      } else if (err.message.includes('already registered')) {
-        errorMessage = 'This email is already registered. Please sign in or use a different email.';
-      } else if (err.message.includes('rate limit')) {
-        errorMessage = 'Too many attempts. Please try again later.';
-      }
-
-      setError(errorMessage);
+    } catch (err) {
+      setError(handleAuthError(err));
+      setStatus(err.message?.includes('timed out') ? 'timeout' : 'error');
       console.error('Auth error:', err);
     } finally {
+      if (loginTimeout) {
+        clearTimeout(loginTimeout);
+        setLoginTimeout(null);
+      }
       setIsSubmitting(false);
     }
   };
@@ -85,6 +122,7 @@ const Auth = () => {
               id="email"
               name="email"
               type="email"
+              autoComplete="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -96,7 +134,8 @@ const Auth = () => {
 
         {error && (
           <div className="text-red-600 text-sm flex items-center bg-red-50 p-3 rounded-md">
-            <AlertCircle className="h-4 w-4 mr-1 flex-shrink-0" />
+            {!checkNetworkConnectivity() && <WifiOff className="h-4 w-4 mr-1 flex-shrink-0" />}
+            {checkNetworkConnectivity() && <AlertCircle className="h-4 w-4 mr-1 flex-shrink-0" />}
             <span>{error}</span>
           </div>
         )}
@@ -151,6 +190,7 @@ const Auth = () => {
               id="email"
               name="email"
               type="email"
+              autoComplete="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -168,6 +208,11 @@ const Auth = () => {
             <input
               id="password"
               name="password"
+              id="password"
+              name="password"
+              id="password"
+              name="password"
+              autoComplete="current-password"
               type={showPassword ? "text" : "password"}
               required
               value={password}
@@ -177,6 +222,10 @@ const Auth = () => {
             />
             <button
               type="button"
+              id="toggle-password-visibility"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              id="toggle-password-visibility"
+              aria-label={showPassword ? "Hide password" : "Show password"}
               onClick={() => setShowPassword(!showPassword)}
               className="absolute inset-y-0 right-0 pr-3 flex items-center"
             >
@@ -189,9 +238,40 @@ const Auth = () => {
           </div>
         </div>
 
+        {status === 'timeout' && (
+          <div className="bg-yellow-50 p-4 rounded-lg">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 text-yellow-500 mr-2" />
+              <p className="text-sm text-yellow-700">
+                Connection is slower than usual. {retryCount > 0 && `Retry #${retryCount}`}
+              </p>
+            </div>
+            <div className="mt-3 flex space-x-3">
+              <button
+                type="submit"
+                className="flex items-center text-sm bg-yellow-500 text-white px-3 py-1.5 rounded-md hover:bg-yellow-600"
+              >
+                <RefreshCw className="h-4 w-4 mr-1" />
+                Try Again
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatus('idle');
+                  setError('');
+                }}
+                className="text-sm text-gray-600 px-3 py-1.5 rounded-md hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {error && (
           <div className="text-red-600 text-sm flex items-center bg-red-50 p-3 rounded-md">
-            <AlertCircle className="h-4 w-4 mr-1 flex-shrink-0" />
+            {!checkNetworkConnectivity() && <WifiOff className="h-4 w-4 mr-1 flex-shrink-0" />}
+            {checkNetworkConnectivity() && <AlertCircle className="h-4 w-4 mr-1 flex-shrink-0" />}
             <span>{error}</span>
           </div>
         )}
@@ -207,7 +287,14 @@ const Auth = () => {
           disabled={isSubmitting}
           className="w-full flex justify-center py-2.5 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-yellow-500 hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isSubmitting ? 'Please wait...' : (isLogin ? 'Sign in' : 'Sign up')}
+          {isSubmitting ? (
+            <span className="flex items-center">
+              <Loader className="animate-spin h-4 w-4 mr-2" />
+              Please wait...
+            </span>
+          ) : (
+            isLogin ? 'Sign in' : 'Sign up'
+          )}
         </button>
 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">

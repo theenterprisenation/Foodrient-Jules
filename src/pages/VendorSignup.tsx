@@ -98,8 +98,10 @@ const VendorSignup = () => {
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Personal Information</h2>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">First Name</label>
+                  <label htmlFor="firstName" className="block text-sm font-medium text-gray-700">First Name</label>
                   <input
+                    id="firstName"
+                    name="firstName"
                     type="text"
                     required
                     value={formData.firstName}
@@ -108,8 +110,10 @@ const VendorSignup = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Last Name</label>
+                  <label htmlFor="lastName" className="block text-sm font-medium text-gray-700">Last Name</label>
                   <input
+                    id="lastName"
+                    name="lastName"
                     type="text"
                     required
                     value={formData.lastName}
@@ -125,8 +129,10 @@ const VendorSignup = () => {
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Account Information</h2>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Email Address</label>
+                  <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email Address</label>
                   <input
+                    id="email"
+                    name="email"
                     type="email"
                     required
                     value={formData.email}
@@ -135,8 +141,10 @@ const VendorSignup = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Password</label>
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700">Password</label>
                   <input
+                    id="password"
+                    name="password"
                     type="password"
                     required
                     value={formData.password}
@@ -145,8 +153,10 @@ const VendorSignup = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Confirm Password</label>
+                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700">Confirm Password</label>
                   <input
+                    id="confirmPassword"
+                    name="confirmPassword"
                     type="password"
                     required
                     value={formData.confirmPassword}
@@ -162,8 +172,10 @@ const VendorSignup = () => {
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Business Information</h2>
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Business/Trade Name</label>
+                  <label htmlFor="businessName" className="block text-sm font-medium text-gray-700">Business/Trade Name</label>
                   <input
+                    id="businessName"
+                    name="businessName"
                     type="text"
                     required
                     value={formData.businessName}
@@ -172,8 +184,10 @@ const VendorSignup = () => {
                   />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-sm font-medium text-gray-700">Business Address</label>
+                  <label htmlFor="businessAddress" className="block text-sm font-medium text-gray-700">Business Address</label>
                   <input
+                    id="businessAddress"
+                    name="businessAddress"
                     type="text"
                     required
                     value={formData.businessAddress}
@@ -182,8 +196,10 @@ const VendorSignup = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">State</label>
+                  <label htmlFor="state" className="block text-sm font-medium text-gray-700">State</label>
                   <input
+                    id="state"
+                    name="state"
                     type="text"
                     required
                     value={formData.state}
@@ -192,8 +208,10 @@ const VendorSignup = () => {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">City</label>
+                  <label htmlFor="city" className="block text-sm font-medium text-gray-700">City</label>
                   <input
+                    id="city"
+                    name="city"
                     type="text"
                     required
                     value={formData.city}
@@ -209,14 +227,16 @@ const VendorSignup = () => {
               <h2 className="text-xl font-semibold text-gray-900 mb-4">Required Documents</h2>
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Recent Utility Bill</label>
+                  <label htmlFor="utilityBill" className="block text-sm font-medium text-gray-700">Recent Utility Bill</label>
                   <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
                     <div className="space-y-1 text-center">
                       <Upload className="mx-auto h-12 w-12 text-gray-400" />
                       <div className="flex text-sm text-gray-600">
-                        <label className="relative cursor-pointer bg-white rounded-md font-medium text-yellow-600 hover:text-yellow-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-yellow-500">
+                        <label htmlFor="utilityBill" className="relative cursor-pointer bg-white rounded-md font-medium text-yellow-600 hover:text-yellow-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-yellow-500">
                           <span>Upload a file</span>
                           <input
+                            id="utilityBill"
+                            name="utilityBill"
                             type="file"
                             required
                             className="sr-only"
@@ -232,14 +252,16 @@ const VendorSignup = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Valid National ID</label>
+                  <label htmlFor="nationalId" className="block text-sm font-medium text-gray-700">Valid National ID</label>
                   <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md">
                     <div className="space-y-1 text-center">
                       <Upload className="mx-auto h-12 w-12 text-gray-400" />
                       <div className="flex text-sm text-gray-600">
-                        <label className="relative cursor-pointer bg-white rounded-md font-medium text-yellow-600 hover:text-yellow-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-yellow-500">
+                        <label htmlFor="nationalId" className="relative cursor-pointer bg-white rounded-md font-medium text-yellow-600 hover:text-yellow-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-yellow-500">
                           <span>Upload a file</span>
                           <input
+                            id="nationalId"
+                            name="nationalId"
                             type="file"
                             required
                             className="sr-only"
@@ -260,6 +282,8 @@ const VendorSignup = () => {
             <div className="flex items-start">
               <div className="flex items-center h-5">
                 <input
+                  id="acceptTerms"
+                  name="acceptTerms"
                   type="checkbox"
                   checked={formData.acceptTerms}
                   onChange={(e) => setFormData({ ...formData, acceptTerms: e.target.checked })}
@@ -267,7 +291,7 @@ const VendorSignup = () => {
                 />
               </div>
               <div className="ml-3 text-sm">
-                <label className="font-medium text-gray-700">
+                <label htmlFor="acceptTerms" className="font-medium text-gray-700">
                   I accept the vendor terms and conditions
                 </label>
               </div>

@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { initializePayment, verifyPayment, calculateFees } from '../lib/paystack';
+import { checkAuthEndpointHealth } from '../lib/serverCheck';
+import { NetworkMonitor } from '../utils/networkMonitor';
 
 interface PaymentState {
   isLoading: boolean;
@@ -15,7 +17,20 @@ export const usePaymentStore = create<PaymentState>((set) => ({
 
   processPayment: async (orderId: string, email: string, items: any[]) => {
     set({ isLoading: true, error: null });
+    
     try {
+      // Check server health first
+      const health = await checkAuthEndpointHealth();
+      if (!health.healthy) {
+        throw new Error(`Payment service is currently unavailable. Please try again later. (${health.error})`);
+      }
+      
+      // Verify network connection
+      const networkMonitor = NetworkMonitor.getInstance();
+      if (!networkMonitor.isOnline()) {
+        throw new Error('No internet connection. Please check your network and try again.');
+      }
+      
       // Group items by vendor
       const vendorItems = items.reduce((acc, item) => {
         const vendorId = item.vendor_id;
@@ -58,6 +73,15 @@ export const usePaymentStore = create<PaymentState>((set) => ({
       return authorizationUrl;
     } catch (error: any) {
       set({ error: error.message });
+      console.error('Payment processing error:', error);
+      
+      // Provide more specific error messages based on the error type
+      if (error.message?.includes('timed out') || error.message?.includes('timeout')) {
+        throw new Error('Payment processing is taking longer than expected. Please try again later.');
+      } else if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
+        throw new Error('Network error. Please check your internet connection and try again.');
+      }
+      
       throw error;
     } finally {
       set({ isLoading: false });
@@ -66,7 +90,20 @@ export const usePaymentStore = create<PaymentState>((set) => ({
 
   verifyTransaction: async (reference: string) => {
     set({ isLoading: true, error: null });
+    
     try {
+      // Check server health first
+      const health = await checkAuthEndpointHealth();
+      if (!health.healthy) {
+        throw new Error(`Payment verification service is currently unavailable. Please try again later. (${health.error})`);
+      }
+      
+      // Verify network connection
+      const networkMonitor = NetworkMonitor.getInstance();
+      if (!networkMonitor.isOnline()) {
+        throw new Error('No internet connection. Please check your network and try again.');
+      }
+      
       const verification = await verifyPayment(reference);
 
       if (verification.status === 'success') {
@@ -99,6 +136,15 @@ export const usePaymentStore = create<PaymentState>((set) => ({
       }
     } catch (error: any) {
       set({ error: error.message });
+      console.error('Payment verification error:', error);
+      
+      // Provide more specific error messages based on the error type
+      if (error.message?.includes('timed out') || error.message?.includes('timeout')) {
+        throw new Error('Payment verification is taking longer than expected. Please check your payment status later.');
+      } else if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
+        throw new Error('Network error. Please check your internet connection and try again.');
+      }
+      
       throw error;
     } finally {
       set({ isLoading: false });

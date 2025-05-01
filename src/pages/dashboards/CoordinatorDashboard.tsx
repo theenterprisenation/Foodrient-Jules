@@ -1,39 +1,43 @@
 import React from 'react';
-import { Routes, Route, Link } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { DashboardLayout } from '../../components/DashboardLayout';
+
+// Dashboard Pages
+import CoordinatorOverview from '../coordinator/CoordinatorOverview';
+import CoordinatorManagers from '../coordinator/CoordinatorManagers';
+import CoordinatorVendors from '../coordinator/CoordinatorVendors';
+import CoordinatorMessaging from '../coordinator/CoordinatorMessaging';
+import CoordinatorAnalytics from '../coordinator/CoordinatorAnalytics';
+import CoordinatorSettings from '../coordinator/CoordinatorSettings';
+import CoordinatorPayments from '../coordinator/CoordinatorPayments';
+import CoordinatorProducts from '../coordinator/CoordinatorProducts';
+import CoordinatorDelivery from '../coordinator/CoordinatorDelivery';
+import CoordinatorReviews from '../coordinator/CoordinatorReviews';
 
 const CoordinatorDashboard = () => {
+  const location = useLocation();
+  
+  // Redirect to dashboard if at the root coordinator path
+  if (location.pathname === '/coordinator') {
+    return <Navigate to="/coordinator/dashboard" replace />;
+  }
+
   return (
-    <div className="container mx-auto px-4 py-8">
-      <h1 className="text-3xl font-bold mb-8">Coordinator Dashboard</h1>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Managers</h2>
-          <p className="text-gray-600">Oversee manager activities</p>
-          <Link to="managers" className="text-yellow-600 hover:text-yellow-700 mt-4 inline-block">
-            View Managers →
-          </Link>
-        </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Analytics</h2>
-          <p className="text-gray-600">Regional performance metrics</p>
-          <Link to="analytics" className="text-yellow-600 hover:text-yellow-700 mt-4 inline-block">
-            View Analytics →
-          </Link>
-        </div>
-        <div className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-4">Reports</h2>
-          <p className="text-gray-600">Generate coordinator reports</p>
-          <Link to="reports" className="text-yellow-600 hover:text-yellow-700 mt-4 inline-block">
-            View Reports →
-          </Link>
-        </div>
-      </div>
+    <DashboardLayout>
       <Routes>
-        <Route path="managers" element={<div>Manager Overview Page</div>} />
-        <Route path="analytics" element={<div>Analytics Page</div>} />
-        <Route path="reports" element={<div>Reports Page</div>} />
+        <Route path="dashboard" element={<CoordinatorOverview />} />
+        <Route path="managers" element={<CoordinatorManagers />} />
+        <Route path="vendors" element={<CoordinatorVendors />} />
+        <Route path="messages" element={<CoordinatorMessaging />} />
+        <Route path="payments" element={<CoordinatorPayments />} />
+        <Route path="products" element={<CoordinatorProducts />} />
+        <Route path="delivery" element={<CoordinatorDelivery />} />
+        <Route path="reviews" element={<CoordinatorReviews />} />
+        <Route path="analytics" element={<CoordinatorAnalytics />} />
+        <Route path="settings" element={<CoordinatorSettings />} />
+        <Route path="*" element={<Navigate to="/coordinator/dashboard" replace />} />
       </Routes>
-    </div>
+    </DashboardLayout>
   );
 };
 

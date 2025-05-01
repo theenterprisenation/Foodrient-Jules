@@ -39,85 +39,103 @@ export const useFeaturedDealsStore = create<FeaturedDealsState>((set, get) => ({
   error: null,
 
   fetchDeals: async () => {
-    set({ isLoading: true, error: null, deals: [] });
-    try {
-      // Add error handling for network issues
-      if (!navigator.onLine) {
-        throw new Error('No internet connection');
-      }
+    set({ isLoading: true, error: null });
+    
+    // Check network connectivity first
+    if (!navigator.onLine) {
+      set({ 
+        error: 'No internet connection. Please check your network and try again.',
+        isLoading: false,
+        deals: []
+      });
+      return;
+    }
 
-      // Check server health first
-      const health = await checkAuthEndpointHealth();
-      if (!health.healthy) {
-        console.warn('Server health check failed:', health.error);
-        throw new Error(`Server is currently experiencing issues. Please try again later. (${health.error})`);
-      }
-
-      // Implement retry mechanism with progressive backoff
-      let data = null;
-      let error = null;
-      let attempt = 0;
-      
-      while (attempt <= MAX_RETRIES) {
-        try {
-          // Create an abort controller for timeout
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
-          
-          // Fetch deals
-          const response = await supabase
-            .from('featured_deals')
-            .select('*')
-            .eq('status', 'active')
-            .order('created_at', { ascending: false })
-            .abortSignal(controller.signal);
-          
-          // Clear the timeout
-          clearTimeout(timeoutId);
-          
-          data = response.data;
-          error = response.error;
-          
-          // If successful or non-timeout error, break the loop
-          break;
-        } catch (err: any) {
-          // If it's a timeout or network error, retry
-          if (err.name === 'AbortError' || err.message?.includes('Failed to fetch')) {
+    let attempt = 0;
+    
+    while (attempt <= MAX_RETRIES) {
+      try {
+        // Check server health before each attempt
+        const health = await checkAuthEndpointHealth();
+        if (!health.healthy) {
+          // If it's a timeout issue, we'll retry
+          if (health.error?.includes('response time is too high')) {
             attempt++;
             if (attempt <= MAX_RETRIES) {
-              console.log(`Fetch deals attempt ${attempt} failed, retrying in ${RETRY_DELAYS[attempt-1]}ms...`);
+              console.log(`Server health check failed, retrying in ${RETRY_DELAYS[attempt-1]}ms...`);
               await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt-1]));
-              
-              // Check network connectivity again before retry
-              if (!navigator.onLine) {
-                throw new Error('No internet connection. Please check your network and try again.');
-              }
+              continue;
             }
-          } else {
-            throw err; // For other errors, just rethrow
+          }
+          throw new Error(`Server is currently experiencing issues. Please try again later. (${health.error})`);
+        }
+
+        // Create an abort controller for timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+
+        const { data, error } = await supabase
+          .from('featured_deals')
+          .select('*')
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .abortSignal(controller.signal);
+
+        // Clear the timeout
+        clearTimeout(timeoutId);
+
+        if (error) throw error;
+        
+        // Validate data before setting
+        if (!Array.isArray(data)) {
+          throw new Error('Invalid data format received');
+        }
+
+        set({ deals: data, error: null, isLoading: false });
+        return; // Success - exit the retry loop
+        
+      } catch (error: any) {
+        // Check if it's a timeout error or network error
+        if (
+          error.name === 'AbortError' || 
+          error.message?.includes('Failed to fetch') ||
+          error.message?.includes('response time is too high')
+        ) {
+          attempt++;
+          if (attempt <= MAX_RETRIES) {
+            console.log(`Fetch attempt ${attempt} failed, retrying in ${RETRY_DELAYS[attempt-1]}ms...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt-1]));
+            
+            // Check network connectivity before retry
+            if (!navigator.onLine) {
+              set({ 
+                error: 'No internet connection. Please check your network and try again.',
+                isLoading: false,
+                deals: []
+              });
+              return;
+            }
+            continue;
           }
         }
+        
+        // If we've exhausted retries or it's not a retryable error
+        console.error('Error fetching featured deals:', error);
+        set({ 
+          error: error.message || 'Failed to fetch featured deals',
+          deals: [],
+          isLoading: false
+        });
+        return;
       }
-
-      if (error) {
-        throw error;
-      }
-      
-      // Validate data before setting
-      if (!Array.isArray(data)) {
-        throw new Error('Invalid data format received');
-      }
-
-      set({ deals: data, error: null });
-    } catch (error: any) {
-      console.error('Error fetching featured deals:', error);
-      set({ 
-        error: error.message || 'Failed to fetch featured deals',
-        deals: [] // Reset deals on error
-      });
-    } finally {
-      set({ isLoading: false });
     }
+
+    // If we've exhausted retries
+    set({ 
+      error: 'Failed to fetch featured deals after multiple attempts. Please try again later.',
+      deals: [],
+      isLoading: false
+    });
   },
 
   createDeal: async (deal) => {

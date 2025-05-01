@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { Store, Upload, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { supabase } from '../lib/supabase';
@@ -292,9 +292,13 @@ const VendorSignup = () => {
               </div>
               <div className="ml-3 text-sm">
                 <label htmlFor="acceptTerms" className="font-medium text-gray-700">
-                  I accept the vendor terms and conditions
+                  I accept the <Link to="/vendor-terms" target="_blank" className="text-yellow-600 hover:text-yellow-700 underline">Vendor Terms and Conditions</Link>
                 </label>
               </div>
+            </div>
+            
+            <div className="text-sm text-gray-500 mt-2">
+              Please review our <Link to="/vendor-terms" target="_blank" className="text-yellow-600 hover:text-yellow-700">Vendor Terms and Conditions</Link> before signing up.
             </div>
 
             {/* Error Message */}

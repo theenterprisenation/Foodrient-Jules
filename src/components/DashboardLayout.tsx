@@ -1,13 +1,25 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
-  MessageSquare, 
-  Package, 
-  ShoppingBag, 
-  Users, 
-  BarChart, 
+  MessageSquare,
+  Package,
+  ShoppingBag,
+  Users,
+  BarChart,
   LogOut,
-  Home
+  Home,
+  Settings,
+  FileText,
+  Image,
+  UserCheck,
+  Store,
+  Wallet,
+  PieChart,
+  DollarSign,
+  MapPin,
+  Heart,
+  Star,
+  Share2
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { navigate } from '../utils/navigation';
@@ -25,24 +37,72 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
     navigate('/auth', { replace: true });
   };
 
-  const getBasePath = () => {
-    switch (user?.role) {
-      case 'customer': return '/customer';
-      case 'vendor': return '/vendor';
-      case 'manager': return '/manager';
-      case 'coordinator': return '/coordinator';
-      case 'chief': return '/chief';
-      default: return '/';
-    }
-  };
+  // Get the base path based on user role
+  const basePath = (() => {
+    if (!user) return '/';
+    const roleMap = {
+      'customer': '/customer',
+      'vendor': '/vendor',
+      'manager': '/manager',
+      'coordinator': '/coordinator',
+      'chief': '/chief'
+    };
+    return roleMap[user.role] || '/';
+  })();
 
-  const menuItems = [
-    { icon: Home, label: 'Dashboard', path: `${getBasePath()}/dashboard` },
-    { icon: MessageSquare, label: 'Messages', path: `${getBasePath()}/messages` },
-    { icon: Package, label: 'Products', path: `${getBasePath()}/products` },
-    { icon: ShoppingBag, label: 'Orders', path: `${getBasePath()}/orders` },
-    { icon: Users, label: 'Customers', path: `${getBasePath()}/customers` },
-    { icon: BarChart, label: 'Analytics', path: `${getBasePath()}/analytics` },
+  // Define menu items based on user role
+  const menuItems = user?.role === 'chief' ? [
+    { icon: Home, label: 'Overview', path: `${basePath}/overview` },
+    { icon: Users, label: 'Managers & Coordinators', path: `${basePath}/managers` },
+    { icon: DollarSign, label: 'Payments', path: `${basePath}/payments` },
+    { icon: Package, label: 'Products & Deals', path: `${basePath}/products` },
+    { icon: Truck, label: 'Delivery Schedules', path: `${basePath}/delivery` },
+    { icon: Star, label: 'Reviews', path: `${basePath}/reviews` },
+    { icon: FileText, label: 'Blog Posts', path: `${basePath}/blog` },
+    { icon: Image, label: 'Adverts', path: `${basePath}/adverts` },
+    { icon: UserCheck, label: 'Vendor Assignment', path: `${basePath}/vendor-assignment` },
+    { icon: Store, label: 'Vendor Management', path: `${basePath}/vendor-management` },
+    { icon: Wallet, label: 'Peps Management', path: `${basePath}/peps` },
+    { icon: MessageSquare, label: 'Messaging', path: `${basePath}/messaging` },
+    { icon: PieChart, label: 'Analytics & Reports', path: `${basePath}/analytics` },
+    { icon: Settings, label: 'System Settings', path: `${basePath}/settings` },
+  ] : user?.role === 'coordinator' ? [
+    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
+    { icon: Users, label: 'Managers', path: `${basePath}/managers` },
+    { icon: DollarSign, label: 'Payments', path: `${basePath}/payments` },
+    { icon: Package, label: 'Products & Deals', path: `${basePath}/products` },
+    { icon: Truck, label: 'Delivery Schedules', path: `${basePath}/delivery` },
+    { icon: Star, label: 'Reviews', path: `${basePath}/reviews` },
+    { icon: Store, label: 'Vendors', path: `${basePath}/vendors` },
+    { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
+    { icon: BarChart, label: 'Analytics', path: `${basePath}/analytics` },
+    { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
+  ] : user?.role === 'manager' ? [
+    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
+    { icon: Store, label: 'My Vendors', path: `${basePath}/vendors` },
+    { icon: DollarSign, label: 'Commissions', path: `${basePath}/commissions` },
+    { icon: Wallet, label: 'PEPS', path: `${basePath}/peps` },
+    { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
+    { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
+  ] : user?.role === 'vendor' ? [
+    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
+    { icon: Package, label: 'Products', path: `${basePath}/products` },
+    { icon: ShoppingBag, label: 'Orders', path: `${basePath}/orders` },
+    { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
+    { icon: BarChart, label: 'Analytics', path: `${basePath}/analytics` },
+    { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
+  ] : user?.role === 'customer' ? [
+    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
+    { icon: ShoppingBag, label: 'My Orders', path: `${basePath}/orders` },
+    { icon: MapPin, label: 'My Addresses', path: `${basePath}/addresses` },
+    { icon: Heart, label: 'Favorite Vendors', path: `${basePath}/favorites` },
+    { icon: Star, label: 'My Reviews', path: `${basePath}/reviews` },
+    { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
+    { icon: Share2, label: 'Referrals', path: `${basePath}/referrals` },
+    { icon: Wallet, label: 'PEPS', path: `${basePath}/peps` },
+    { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
+  ] : [
+    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
   ];
 
   return (
@@ -54,6 +114,11 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
           <div className="p-4 border-b border-gray-200">
             <div className="font-semibold text-gray-900">{user?.email}</div>
             <div className="text-sm text-gray-500 capitalize">{user?.role}</div>
+            {user?.role === 'chief' && (
+              <div className="mt-1 text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded-full inline-block">
+                Administrator
+              </div>
+            )}
           </div>
 
           {/* Navigation */}

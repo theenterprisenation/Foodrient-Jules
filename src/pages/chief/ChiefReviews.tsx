@@ -123,7 +123,7 @@ const ChiefReviews = () => {
           ),
           user:profiles(
             full_name,
-            email:auth.users!profiles_id_fkey(email)
+            email:auth.users(email)
           )
         `)
         .order('created_at', { ascending: false });

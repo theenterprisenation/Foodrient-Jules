@@ -58,11 +58,19 @@ const ChiefVendorAssignment = () => {
         .select(`
           id,
           full_name,
-          email:auth.users!profiles_id_fkey(email)
+          email:auth.users(email)
         `)
         .eq('role', 'manager');
         
       if (managersError) throw managersError;
+      
+      // Process managers data
+      const processedManagers = managersData.map(manager => ({
+        id: manager.id,
+        full_name: manager.full_name || 'Unnamed Manager',
+        email: manager.email?.[0]?.email || 'N/A',
+        assigned_vendors: 0 // Will be updated below
+      }));
       
       // Fetch manager assignments count
       const { data: assignmentsData, error: assignmentsError } = await supabase
@@ -79,13 +87,10 @@ const ChiefVendorAssignment = () => {
         assignmentCounts[assignment.manager_id] = (assignmentCounts[assignment.manager_id] || 0) + 1;
       });
       
-      // Combine data
-      const processedManagers = managersData.map(manager => ({
-        id: manager.id,
-        full_name: manager.full_name || 'Unnamed Manager',
-        email: manager.email?.[0]?.email || 'N/A',
-        assigned_vendors: assignmentCounts[manager.id] || 0
-      }));
+      // Update manager assignments count
+      processedManagers.forEach(manager => {
+        manager.assigned_vendors = assignmentCounts[manager.id] || 0;
+      });
       
       setManagers(processedManagers);
       

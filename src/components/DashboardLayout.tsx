@@ -19,7 +19,8 @@ import {
   MapPin,
   Heart,
   Star,
-  Share2
+  Share2,
+  Truck
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { navigate } from '../utils/navigation';

@@ -49,6 +49,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const syncChannel = useRef<BroadcastChannel | null>(null);
   const lastActivityTime = useRef(Date.now());
 
+  // Network change handler (moved up before useEffect)
+  const handleNetworkChange = useCallback((isOnline: boolean) => {
+    if (networkDebounceTimer.current) {
+      clearTimeout(networkDebounceTimer.current);
+    }
+
+    networkDebounceTimer.current = setTimeout(() => {
+      if (!isMounted.current) return;
+      
+      if (isOnline) {
+        refreshSessionWithRetry().catch(console.error);
+      } else {
+        updateState({
+          status: 'error',
+          error: 'No internet connection'
+        });
+        if (refreshTimer.current) clearTimeout(refreshTimer.current);
+        if (validationTimer.current) clearInterval(validationTimer.current);
+      }
+    }, NETWORK_DEBOUNCE_DELAY);
+  }, []);
+
   // Session synchronization between tabs
   const setupSyncChannel = () => {
     syncChannel.current = new BroadcastChannel(TAB_SYNC_CHANNEL);
@@ -143,7 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Updated initialization logic (your requested change)
+  // Core authentication initialization
   const initializeAuth = useCallback(async (): Promise<void> => {
     if (initializeAttempted.current) return;
     initializeAttempted.current = true;
@@ -189,8 +211,91 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Rest of your existing functions remain unchanged...
-  // [Previous refreshSessionWithRetry, scheduleTokenRefresh, etc.]
+  // Enhanced session refresh with integrity checks
+  const refreshSessionWithRetry = useCallback(async (attempt = 0): Promise<void> => {
+    if (!isMounted.current || attempt >= MAX_RETRIES || sessionLock.current) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastRefreshTime.current < RATE_LIMIT_COOLDOWN) {
+      const delay = RATE_LIMIT_COOLDOWN - (now - lastRefreshTime.current);
+      setTimeout(() => refreshSessionWithRetry(attempt), delay);
+      return;
+    }
+
+    sessionLock.current = true;
+    lastRefreshTime.current = now;
+    lastActivityTime.current = now;
+
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      const isValid = await validateSession(session);
+      if (!isValid) {
+        await supabase.auth.signOut();
+        await updateState({ user: null, status: 'unauthenticated' });
+        return;
+      }
+
+      await updateState({
+        user: session.user,
+        status: 'authenticated',
+        error: null,
+        serverStatus: 'healthy'
+      });
+
+      scheduleTokenRefresh(session.expires_at * 1000);
+    } catch (error: any) {
+      console.error(`Session refresh attempt ${attempt + 1} failed:`, error);
+      
+      if (error.status === 429) {
+        const delay = RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)];
+        setTimeout(() => refreshSessionWithRetry(attempt + 1), delay);
+      } else {
+        await updateState({
+          status: 'error',
+          error: handleAuthError(error),
+          serverStatus: error.message.includes('unavailable') ? 'unhealthy' : 'unknown'
+        });
+      }
+    } finally {
+      sessionLock.current = false;
+    }
+  }, []);
+
+  // Token refresh scheduling
+  const scheduleTokenRefresh = useCallback((expiresAt: number) => {
+    if (refreshTimer.current) {
+      clearTimeout(refreshTimer.current);
+    }
+    if (validationTimer.current) {
+      clearInterval(validationTimer.current);
+    }
+
+    const refreshTime = expiresAt - REFRESH_BUFFER - Date.now();
+    if (refreshTime <= 0) {
+      refreshSessionWithRetry().catch(console.error);
+      return;
+    }
+
+    refreshTimer.current = setTimeout(() => {
+      refreshSessionWithRetry().catch(console.error);
+    }, Math.max(refreshTime, 1000)); // Ensure minimum 1s delay
+  }, [refreshSessionWithRetry]);
+
+  // Session validation timer
+  const startSessionValidation = () => {
+    if (validationTimer.current) {
+      clearInterval(validationTimer.current);
+    }
+    validationTimer.current = setInterval(() => {
+      if (state.user && Date.now() - lastActivityTime.current > 30000) {
+        refreshSessionWithRetry().catch(console.error);
+      }
+    }, SESSION_VALIDATION_INTERVAL);
+  };
 
   // Initial setup
   useEffect(() => {
@@ -232,17 +337,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [initializeAuth, handleNetworkChange]);
 
-  // [Rest of your existing code...]
+  const retryAuth = useCallback(async () => {
+    initializeAttempted.current = false;
+    await initializeAuth();
+  }, [initializeAuth]);
 
   const contextValue: AuthContextType = {
     user: state.user,
     status: state.status,
     error: state.error,
     serverStatus: state.serverStatus,
-    retryAuth: useCallback(async () => {
-      initializeAttempted.current = false;
-      await initializeAuth();
-    }, [initializeAuth]),
+    retryAuth,
     sessionChecksum: state.sessionChecksum,
     validateSession: async () => {
       if (!state.user) return false;

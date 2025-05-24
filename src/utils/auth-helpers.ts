@@ -36,7 +36,7 @@ export const handleAuthError = (error: any = {}): string => {
 };
 
 // Function to check if user has specific role
-export const hasRole = async (requiredRoles: string[]): Promise<boolean> => {
+const hasRole = async (requiredRoles: string[]): Promise<boolean> => {
   try {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return false;
@@ -51,73 +51,5 @@ export const hasRole = async (requiredRoles: string[]): Promise<boolean> => {
   } catch (error) {
     console.error('Error checking user role:', error);
     return false;
-  }
-};
-
-// Function to get user profile with role
-export const getUserProfile = async () => {
-  try {
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
-    
-    if (userError) {
-      console.error('Error getting user:', userError);
-      return null;
-    }
-    
-    if (!user) return null;
-    
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-    
-    if (profileError) {
-      console.error('Error fetching profile:', profileError);
-      
-      // If profile doesn't exist, try to create one
-      if (profileError.code === 'PGRST116') {
-        const { data: newProfile, error: insertError } = await supabase
-          .from('profiles')
-          .insert({ id: user.id, role: 'visitor' })
-          .select()
-          .single();
-          
-        if (insertError) {
-          console.error('Error creating profile:', insertError);
-          return null;
-        }
-        
-        return newProfile;
-      }
-      
-      return null;
-    }
-    
-    return profile;
-  } catch (error) {
-    console.error('Error fetching user profile:', error);
-    return null;
-  }
-};
-
-// Function to update user profile
-export const updateUserProfile = async (updates: any) => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('Not authenticated');
-    
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('id', user.id)
-      .select()
-      .single();
-    
-    if (error) throw error;
-    return data;
-  } catch (error) {
-    console.error('Error updating profile:', error);
-    throw error;
   }
 };

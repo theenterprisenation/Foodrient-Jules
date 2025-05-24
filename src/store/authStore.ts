@@ -1,3 +1,4 @@
+// src/store/authStore.ts
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
 import { sendEmail } from '../lib/email';
@@ -28,21 +29,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
 
-      // Check network connectivity first
       const networkMonitor = NetworkMonitor.getInstance();
       if (!networkMonitor.isOnline()) {
         throw new Error('No internet connection. Please check your network and try again.');
       }
 
-      // Use the robust sign in function with retry mechanism
       const { error } = await robustSignIn(email, password);
+      if (error) throw error;
 
-      if (error) {
-        throw error;
-      }
-
-      // We'll fetch the profile in the onAuthStateChange handler
-      // to avoid potential fetch errors here
     } catch (error: any) {
       set({ error: handleAuthError(error) });
       throw error;
@@ -55,26 +49,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     try {
       set({ isLoading: true, error: null });
 
-      // Check network connectivity first
       const networkMonitor = NetworkMonitor.getInstance();
       if (!networkMonitor.isOnline()) {
         throw new Error('No internet connection. Please check your network and try again.');
       }
 
-      // Use the robust sign up function with retry mechanism
       const { data, error } = await robustSignUp(email, password, role);
-
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       if (data?.user) {
         await sendEmail({
           recipient: { email },
           template_type: 'welcome',
-          data: {
-            user_id: data.user.id,
-          },
+          data: { user_id: data.user.id },
         });
       }
     } catch (error: any) {
@@ -105,7 +92,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo: `${window.location.origin}/auth/reset-password`,
       });
-      
       if (error) throw error;
     } catch (error: any) {
       set({ error: handleAuthError(error) });
@@ -118,10 +104,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   updatePassword: async (password: string) => {
     try {
       set({ isLoading: true, error: null });
-      const { error } = await supabase.auth.updateUser({
-        password,
-      });
-      
+      const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
     } catch (error: any) {
       set({ error: handleAuthError(error) });
@@ -131,140 +114,97 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 
-  redirectToDashboard: () => {
-    const { user } = get();
-    if (!user) return;
-    
-    const route = get().getDashboardRoute();
-    navigate(route);
-  },
-  
   getDashboardRoute: () => {
     const { user } = get();
     if (!user) return '/auth';
 
     switch (user.role) {
-      case 'customer':
-        return '/customer/dashboard';
-      case 'vendor':
-        return '/vendor/dashboard';
-      case 'manager':
-        return '/manager/dashboard';
-      case 'coordinator':
-        return '/coordinator/dashboard';
-      case 'chief':
-        return '/chief/dashboard';
-      default:
-        return '/';
+      case 'customer': return '/customer/dashboard';
+      case 'vendor': return '/vendor/dashboard';
+      case 'manager': return '/manager/dashboard';
+      case 'coordinator': return '/coordinator/dashboard';
+      case 'chief': return '/chief/dashboard';
+      default: return '/';
     }
+  },
+
+  redirectToDashboard: () => {
+    const { user } = get();
+    if (!user) return;
+    navigate(get().getDashboardRoute());
   },
 }));
 
-// Initialize auth state
+// Auth state listener
 const handleAuthStateChange = async (event: string, session: any) => {
   try {
     if (event === 'SIGNED_OUT' || !session) {
-      useAuthStore.setState({ 
-        user: null,
-        isLoading: false
-      });
+      useAuthStore.setState({ user: null, isLoading: false });
       return;
     }
-    
+
     if (event === 'SIGNED_IN' && session?.user) {
-      // Set loading state while we fetch the profile
       useAuthStore.setState({ isLoading: true, error: null });
-      
+
       try {
-        // Fetch user profile with retry mechanism
-        const maxRetries = 3;
-        let retryCount = 0;
+        // Profile fetch with retry logic
         let profile = null;
-        let profileError = null;
-        
-        while (retryCount < maxRetries && !profile && session?.user?.id) {
+        let retries = 0;
+        const maxRetries = 3;
+
+        while (retries < maxRetries && !profile && session?.user?.id) {
           try {
             const { data, error } = await supabase
               .from('profiles')
               .select('role')
               .eq('id', session.user.id)
               .single();
-              
+
             if (!error) {
               profile = data;
               break;
             }
-            
-            profileError = error;
-            retryCount++;
-            
-            if (retryCount < maxRetries) {
-              // Exponential backoff
-              const delay = Math.pow(2, retryCount) * 500;
-              await new Promise(resolve => setTimeout(resolve, delay));
-            }
+
+            retries++;
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 500));
           } catch (err) {
-            profileError = err;
-            retryCount++;
-            
-            if (retryCount < maxRetries) {
-              const delay = Math.pow(2, retryCount) * 500;
-              await new Promise(resolve => setTimeout(resolve, delay));
-            }
+            retries++;
+            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retries) * 500));
           }
         }
-        
-        // If we still don't have a profile after retries, create one
+
+        // Create profile if missing
         if (!profile && session?.user?.id) {
           await supabase.from('profiles').insert({ id: session.user.id, role: 'visitor' });
           profile = { role: 'visitor' };
         }
-        
-        if (!profile && profileError) {
-          console.error('Error fetching profile after retries:', profileError);
-          // If we can't fetch the profile, we'll still set the user with basic info
-          useAuthStore.setState({
-            user: {
-              ...session.user,
-              role: 'visitor' // Default role
-            },
-            isLoading: false
-          });
-          return;
-        }
-        
-        // Set user with profile data
+
         useAuthStore.setState({
-          user: {
-            ...session.user,
-            role: profile?.role || 'visitor'
-          },
+          user: { ...session.user, role: profile?.role || 'visitor' },
           isLoading: false
         });
-        
+
         // Only redirect to dashboard if this is a SIGNED_IN event (not a SESSION_REFRESHED event)
-        // and we're on the auth page to prevent infinite redirects
         if (event === 'SIGNED_IN' && window.location.pathname === '/auth') {
-          const { redirectToDashboard } = useAuthStore.getState();
-          redirectToDashboard();
+          setTimeout(() => {
+            useAuthStore.getState().redirectToDashboard();
+          }, 100); // Small debounce to avoid race conditions
         }
+
       } catch (error) {
-        console.error('Error in auth state change handler:', error);
+        console.error('Profile load error:', error);
         useAuthStore.setState({ 
-          user: session?.user || null,
+          user: { ...session.user, role: 'visitor' },
           isLoading: false,
-          error: 'Failed to load user profile'
+          error: 'Failed to load profile'
         });
       }
     }
   } catch (error) {
-    console.error('Unexpected error in auth state change:', error);
-    useAuthStore.setState({ 
-      isLoading: false,
-      error: 'An unexpected authentication error occurred'
-    });
+    console.error('Auth state error:', error);
+    useAuthStore.setState({ isLoading: false, error: 'Authentication error' });
   }
 };
 
-// Set up the auth state change listener
-const { data: { subscription } } = supabase.auth.onAuthStateChange(handleAuthStateChange);
+// Initialize listener
+supabase.auth.onAuthStateChange(handleAuthStateChange);

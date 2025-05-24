@@ -7,17 +7,9 @@ const addSecurityHeaders = () => {
     name: 'add-security-headers',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        // Add Cross-Origin-Embedder-Policy header
-        res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');
-        
-        // Add Cross-Origin-Resource-Policy header
-        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-        
-        // Add CORS headers
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-        
+        // Add security headers but let Vite handle CORS
+        res.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
+        res.setHeader('Cross-Origin-Resource-Policy', 'same-site');
         next();
       });
     }
@@ -34,13 +26,16 @@ export default defineConfig({
     exclude: ['lucide-react'],
   },
   server: {
+    // Enable HTTPS for local development
+    https: true,
     // Handle client-side routing
     historyApiFallback: true,
     // Configure CORS for the dev server
     cors: {
-      origin: '*',
+      origin: 'https://localhost:5173',
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization']
+      allowedHeaders: ['Content-Type', 'Authorization', 'apikey'],
+      credentials: true
     }
   },
   preview: {

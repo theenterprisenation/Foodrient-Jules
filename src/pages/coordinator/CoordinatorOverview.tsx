@@ -75,9 +75,16 @@ const CoordinatorOverview = () => {
     setError(null);
     
     try {
+      // Check server health first
+      const health = await checkServerHealth();
+      if (!health.healthy) {
+        setError(`Server is currently experiencing issues. Please try again later.`);
+        setIsLoading(false);
+        return;
+      }
+      
       // Fetch summary metrics
-      const { data: summaryData, error: summaryError } = await supabase
-        .rpc('get_dashboard_summary');
+      const { data: summaryData, error: summaryError } = await supabase.rpc('get_dashboard_summary');
         
       if (summaryError) throw summaryError;
       
@@ -91,19 +98,17 @@ const CoordinatorOverview = () => {
       }
       
       // Fetch revenue data for chart
-      const { data: revenueData, error: revenueError } = await supabase
-        .rpc('get_revenue_data', { 
-          p_period: dateRange 
-        });
+      const { data: revenueData, error: revenueError } = await supabase.rpc('get_revenue_data', { 
+        p_period: dateRange 
+      });
         
       if (revenueError) throw revenueError;
       setRevenueData(revenueData || []);
       
       // Fetch order data for chart
-      const { data: orderData, error: orderError } = await supabase
-        .rpc('get_order_data', { 
-          p_period: dateRange 
-        });
+      const { data: orderData, error: orderError } = await supabase.rpc('get_order_data', { 
+        p_period: dateRange 
+      });
         
       if (orderError) throw orderError;
       setOrderData(orderData || []);
@@ -279,7 +284,7 @@ const CoordinatorOverview = () => {
               )}
             </div>
             <div>
-              <h3 className={`font-medium ${serverStatus.database.healthy ? 'text-green-800' : 'text-red-800'}`}>
+              <h3 className={`font-medium ${serverStatus.database.healthy ?'text-green-800' : 'text-red-800'}`}>
                 Database Service
               </h3>
               <p className="text-sm">
@@ -289,6 +294,14 @@ const CoordinatorOverview = () => {
               </p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {error && (
+        <div className="mb-6 p-4 bg-red-50 rounded-lg flex items-center text-red-800">
+          <AlertCircle className="h-5 w-5 mr-2" />
+          <p>{error}</p>
         </div>
       )}
 

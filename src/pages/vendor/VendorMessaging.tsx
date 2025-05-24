@@ -103,9 +103,7 @@ const VendorMessaging = () => {
             id,
             user_id,
             role,
-            user:profiles(
-              full_name
-            )
+            user:profiles(full_name)
           )
         `)
         .order('updated_at', { ascending: false });
@@ -119,8 +117,7 @@ const VendorMessaging = () => {
       
       const { data: emailsData, error: emailsError } = await supabase
         .from('users')
-        .select('id, email')
-        .in('id', userIds);
+        .select('id, email');
         
       if (emailsError) throw emailsError;
       
@@ -201,8 +198,7 @@ const VendorMessaging = () => {
       // Then, fetch emails
       const { data: emailsData, error: emailsError } = await supabase
         .from('users')
-        .select('id, email')
-        .in('id', profilesData?.map(p => p.id) || []);
+        .select('id, email');
         
       if (emailsError) throw emailsError;
       

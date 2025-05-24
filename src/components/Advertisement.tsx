@@ -1,3 +1,4 @@
+import { useAuth } from './AuthProvider';
 import React from 'react';
 import { ExternalLink } from 'lucide-react';
 import type { Advertisement as AdvertisementType } from '../store/advertisementStore';

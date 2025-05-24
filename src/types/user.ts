@@ -1,6 +1,6 @@
-export type UserRole = 'visitor' | 'customer' | 'vendor' | 'support' | 'supervisor' | 'administrator';
+type UserRole = 'visitor' | 'customer' | 'vendor' | 'support' | 'supervisor' | 'administrator';
 
-export interface Profile {
+interface Profile {
   id: string;
   full_name: string | null;
   phone_number: string | null;
@@ -10,7 +10,7 @@ export interface Profile {
   updated_at: string;
 }
 
-export interface SupportTeamMember {
+interface SupportTeamMember {
   id: string;
   user_id: string;
   department: string;

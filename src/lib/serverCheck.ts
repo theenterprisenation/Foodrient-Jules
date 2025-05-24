@@ -1,105 +1,80 @@
+// src/lib/serverCheck.ts
 import { supabase } from './supabase';
+import { NetworkMonitor } from '../utils/networkMonitor';
 
-interface ServerHealthResult {
+interface ServerHealth {
   healthy: boolean;
-  responseTime?: number;
+  message?: string;
   error?: string;
-  version?: string;
+  services?: {
+    auth?: boolean;
+  };
 }
 
-// Check the health of the Supabase auth endpoint
-export const checkAuthEndpointHealth = async (): Promise<ServerHealthResult> => {
-  try {
-    const startTime = Date.now();
-    
-    // Try to get the session as a simple health check
-    const { error } = await supabase.auth.getSession();
-    
-    const responseTime = Date.now() - startTime;
-    
-    if (error) {
-      return {
-        healthy: false,
-        responseTime,
-        error: error.message
-      };
-    }
-    
-    // If response time is too high, consider the service unhealthy
-    if (responseTime > 5000) {
-      return {
-        healthy: false,
-        responseTime,
-        error: 'Auth endpoint response time is too high'
-      };
-    }
-    
-    return {
-      healthy: true,
-      responseTime
-    };
-  } catch (error: any) {
-    return {
-      healthy: false,
-      error: error.message
-    };
-  }
-};
+const RETRY_DELAYS = [1000, 3000, 5000]; // Retry delays in milliseconds
+const MAX_RETRIES = 3;
 
-// Check the health of the Supabase database
-export const checkDatabaseHealth = async (): Promise<ServerHealthResult> => {
-  try {
-    const startTime = Date.now();
-    
-    // Simple query to check database health
-    const { error } = await supabase
-      .from('profiles')
-      .select('count')
-      .limit(1);
-    
-    const responseTime = Date.now() - startTime;
-    
-    if (error) {
-      return {
-        healthy: false,
-        responseTime,
-        error: error.message
-      };
-    }
-    
-    // If response time is too high, consider the service unhealthy
-    if (responseTime > 5000) {
-      return {
-        healthy: false,
-        responseTime,
-        error: 'Database response time is too high'
-      };
-    }
-    
-    return {
-      healthy: true,
-      responseTime
-    };
-  } catch (error: any) {
-    return {
-      healthy: false,
-      error: error.message
-    };
-  }
-};
-
-// Check overall server health
-export const checkServerHealth = async (): Promise<{
-  auth: ServerHealthResult;
-  database: ServerHealthResult;
-  healthy: boolean;
-}> => {
-  const auth = await checkAuthEndpointHealth();
-  const database = await checkDatabaseHealth();
+export const checkServerHealth = async (attempt = 0): Promise<ServerHealth> => {
+  const networkMonitor = NetworkMonitor.getInstance();
   
-  return {
-    auth,
-    database,
-    healthy: auth.healthy && database.healthy
-  };
+  // Check network connectivity first
+  if (!networkMonitor.isOnline()) {
+    return {
+      healthy: false,
+      error: 'No internet connection',
+      services: {
+        auth: false
+      }
+    };
+  }
+
+  try {
+    // Use the Supabase client directly instead of raw fetch
+    const { error } = await supabase.auth.getSession();
+
+    // If there's no error, the auth service is healthy
+    if (!error) {
+      return {
+        healthy: true,
+        services: {
+          auth: true
+        }
+      };
+    }
+
+    // If we get a rate limit error and haven't exceeded retries, try again
+    if (error.message?.includes('Too many requests') && attempt < MAX_RETRIES) {
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      return checkServerHealth(attempt + 1);
+    }
+
+    return {
+      healthy: false,
+      error: error.message || 'Authentication service unavailable',
+      services: {
+        auth: false
+      }
+    };
+  } catch (error: any) {
+    // If it's a network error and we haven't exceeded retries, try again
+    if (
+      attempt < MAX_RETRIES && 
+      (error.message?.includes('Failed to fetch') || 
+       error.message?.includes('NetworkError'))
+    ) {
+      await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt]));
+      return checkServerHealth(attempt + 1);
+    }
+
+    return {
+      healthy: false,
+      error: error.message || 'Failed to reach authentication service',
+      services: {
+        auth: false
+      }
+    };
+  }
 };
+
+// For backward compatibility with existing imports
+const checkAuthEndpointHealth = checkServerHealth;

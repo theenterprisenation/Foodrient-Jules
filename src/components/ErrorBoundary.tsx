@@ -1,3 +1,4 @@
+import { useAuth } from './AuthProvider';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { handleAuthError } from '../utils/auth-helpers';

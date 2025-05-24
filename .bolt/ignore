@@ -1,0 +1,2 @@
+# Bolt to Ignore migrations
+supabase/migrations/*

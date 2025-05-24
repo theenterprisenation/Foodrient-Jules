@@ -1,3 +1,4 @@
+import { useAuth } from './AuthProvider';
 import React from 'react';
 import { format } from 'date-fns';
 import { Users, Clock, ShoppingBag, TrendingUp } from 'lucide-react';

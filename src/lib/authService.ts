@@ -1,10 +1,11 @@
+// src/lib/authService.ts
 import { supabase } from './supabase';
 import { NetworkMonitor } from '../utils/networkMonitor';
-import { handleAuthError } from '../utils/auth-helpers';
 
 // Default timeout and retry configuration
 const DEFAULT_TIMEOUT = 15000; // 15 seconds
-const RETRY_DELAYS = [1000, 3000, 5000]; // Progressive retry delays
+const RETRY_DELAYS = [1000, 3000, 5000, 8000, 13000]; // Fibonacci sequence for exponential backoff
+const MAX_RETRIES = 5;
 
 interface AuthMetrics {
   event: 'login_success' | 'login_failure' | 'signup_success' | 'signup_failure';
@@ -19,8 +20,18 @@ const logAuthMetrics = (metrics: AuthMetrics) => {
   // In a production app, you would send this to your analytics service
 };
 
+// Handle rate limiting with exponential backoff
+const handleRateLimit = async (attempt: number): Promise<void> => {
+  if (attempt >= MAX_RETRIES) {
+    throw new Error('Maximum retry attempts reached. Please try again later.');
+  }
+  const delay = RETRY_DELAYS[attempt];
+  console.log(`Rate limit hit, waiting ${delay}ms before retry...`);
+  await new Promise(resolve => setTimeout(resolve, delay));
+};
+
 // Sign in with retry mechanism
-export const signInWithRetry = async (
+const signInWithRetry = async (
   email: string, 
   password: string, 
   attempt = 0
@@ -51,6 +62,12 @@ export const signInWithRetry = async (
     
     // If there's an error, handle it
     if (error) {
+      // Check for rate limiting
+      if (error.status === 429) {
+        await handleRateLimit(attempt);
+        return signInWithRetry(email, password, attempt + 1);
+      }
+      
       // Log metrics for failure
       logAuthMetrics({
         event: 'login_failure',
@@ -73,6 +90,12 @@ export const signInWithRetry = async (
   } catch (error: any) {
     // Clear the timeout
     clearTimeout(timeoutId);
+    
+    // If it's a rate limit error, handle it
+    if (error.status === 429) {
+      await handleRateLimit(attempt);
+      return signInWithRetry(email, password, attempt + 1);
+    }
     
     // If it's an abort error (timeout), and we haven't exceeded retry attempts
     if (error.name === 'AbortError' && attempt < RETRY_DELAYS.length) {
@@ -101,7 +124,7 @@ export const signInWithRetry = async (
 };
 
 // Sign up with retry mechanism
-export const signUpWithRetry = async (
+const signUpWithRetry = async (
   email: string, 
   password: string, 
   role: string = 'customer',
@@ -138,6 +161,12 @@ export const signUpWithRetry = async (
     
     // If there's an error, handle it
     if (error) {
+      // Check for rate limiting
+      if (error.status === 429) {
+        await handleRateLimit(attempt);
+        return signUpWithRetry(email, password, role, attempt + 1);
+      }
+      
       // Log metrics for failure
       logAuthMetrics({
         event: 'signup_failure',
@@ -160,6 +189,12 @@ export const signUpWithRetry = async (
   } catch (error: any) {
     // Clear the timeout
     clearTimeout(timeoutId);
+    
+    // If it's a rate limit error, handle it
+    if (error.status === 429) {
+      await handleRateLimit(attempt);
+      return signUpWithRetry(email, password, role, attempt + 1);
+    }
     
     // If it's an abort error (timeout), and we haven't exceeded retry attempts
     if (error.name === 'AbortError' && attempt < RETRY_DELAYS.length) {
@@ -187,8 +222,8 @@ export const signUpWithRetry = async (
   }
 };
 
-// Check Supabase auth endpoint health
-export const checkAuthEndpointHealth = async (): Promise<{
+// Check Supabase auth endpoint health with retry
+const checkAuthEndpointHealth = async (attempt = 0): Promise<{
   healthy: boolean;
   responseTime?: number;
   error?: string;
@@ -202,6 +237,12 @@ export const checkAuthEndpointHealth = async (): Promise<{
     const responseTime = Date.now() - startTime;
     
     if (error) {
+      // Check for rate limiting
+      if (error.status === 429) {
+        await handleRateLimit(attempt);
+        return checkAuthEndpointHealth(attempt + 1);
+      }
+      
       return {
         healthy: false,
         responseTime,
@@ -214,6 +255,12 @@ export const checkAuthEndpointHealth = async (): Promise<{
       responseTime
     };
   } catch (error: any) {
+    // If it's a rate limit error, handle it
+    if (error.status === 429) {
+      await handleRateLimit(attempt);
+      return checkAuthEndpointHealth(attempt + 1);
+    }
+    
     return {
       healthy: false,
       error: error.message

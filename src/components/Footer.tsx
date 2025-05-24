@@ -1,3 +1,4 @@
+import { useAuth } from './AuthProvider';
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Facebook, Twitter, Instagram, Youtube, ShoppingBag, UserPlus } from 'lucide-react';

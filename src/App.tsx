@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { NavigationProvider } from './components/NavigationProvider';
 import { AuthProvider } from './components/AuthProvider';
+import { useAuth } from './components/AuthProvider'
 import { AppRouter } from './components/AppRouter';
 import ErrorBoundary from './components/ErrorBoundary';
 

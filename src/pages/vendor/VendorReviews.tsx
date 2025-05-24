@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Star, 
   Search, 
@@ -13,7 +13,8 @@ import {
   Calendar,
   TrendingUp,
   BarChart,
-  Store
+  Store,
+  XCircle
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { format } from 'date-fns';
@@ -27,7 +28,10 @@ import {
   Legend, 
   ResponsiveContainer,
   LineChart,
-  Line
+  Line,
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 
 interface Review {
@@ -42,6 +46,7 @@ interface Review {
   response_at: string | null;
   product: {
     name: string;
+    vendor_id: string;
   };
   user: {
     full_name: string;
@@ -74,6 +79,7 @@ const VendorReviews = () => {
       { rating: 2, count: 0 },
       { rating: 1, count: 0 }
     ],
+    vendorRatings: [],
     ratingTrend: []
   });
 
@@ -131,32 +137,68 @@ const VendorReviews = () => {
     setError(null);
     
     try {
-      // Fetch reviews for this vendor's products
+      // First, get all products for this vendor
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select('id')
+        .eq('vendor_id', vendorId);
+        
+      if (productsError) throw productsError;
+      
+      if (!productsData || productsData.length === 0) {
+        setReviews([]);
+        setIsLoading(false);
+        return;
+      }
+      
+      const productIds = productsData.map(p => p.id);
+      
+      // Then, fetch reviews for these products
       const { data: reviewsData, error: reviewsError } = await supabase
         .from('product_reviews')
         .select(`
           *,
-          product:products(
-            name,
-            vendor_id
-          ),
-          user:profiles(
-            full_name,
-            email:auth.users!profiles_id_fkey(email)
-          )
+          product:products(name, vendor_id)
         `)
-        .eq('product.vendor_id', vendorId)
+        .in('product_id', productIds)
         .order('created_at', { ascending: false });
         
       if (reviewsError) throw reviewsError;
       
-      // Process reviews
+      // Then, fetch user profiles separately
+      const userIds = reviewsData?.map(review => review.user_id) || [];
+      
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+        
+      if (profilesError) throw profilesError;
+      
+      // Fetch user emails separately
+      const { data: users, error: usersError } = await supabase
+        .from('users')
+        .select('id, email')
+        .in('id', userIds);
+        
+      if (usersError) {
+        // If we can't get emails from auth table, just continue with profiles
+        console.warn('Could not fetch user emails:', usersError);
+      }
+      
+      // Create a map of user profiles
+      const profileMap = new Map();
+      profiles?.forEach(profile => {
+        profileMap.set(profile.id, {
+          full_name: profile.full_name,
+          email: users?.find(u => u.id === profile.id)?.email || 'N/A'
+        });
+      });
+      
+      // Combine the data
       const processedReviews = reviewsData?.map(review => ({
         ...review,
-        user: {
-          ...review.user,
-          email: review.user?.email?.[0]?.email || 'N/A'
-        }
+        user: profileMap.get(review.user_id) || { full_name: 'Unknown User', email: 'N/A' }
       }));
       
       setReviews(processedReviews || []);
@@ -202,7 +244,8 @@ const VendorReviews = () => {
           totalReviews: processedReviews.length,
           responseRate,
           ratingDistribution: distribution,
-          ratingTrend: trend
+          ratingTrend: trend,
+          vendorRatings: []
         });
       }
     } catch (error: any) {
@@ -268,6 +311,9 @@ const VendorReviews = () => {
       />
     ));
   };
+
+  // Colors for charts
+  const COLORS = ['#F59E0B', '#10B981', '#3B82F6', '#EC4899', '#8B5CF6'];
 
   return (
     <div className="p-6">

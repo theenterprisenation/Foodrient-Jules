@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
-import { checkAuthEndpointHealth } from '../lib/serverCheck';
+import { checkServerHealth } from '../lib/serverCheck';
 import { NetworkMonitor } from '../utils/networkMonitor';
 import type { Product } from '../types';
 
@@ -31,7 +31,7 @@ export const useProductStore = create<ProductState>((set, get) => ({
     
     try {
       // Check server health first
-      const health = await checkAuthEndpointHealth();
+      const health = await checkServerHealth();
       if (!health.healthy) {
         console.warn('Server health check failed:', health.error);
         throw new Error(`Server is currently experiencing issues. Please try again later. (${health.error})`);

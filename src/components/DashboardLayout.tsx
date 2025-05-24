@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   MessageSquare,
@@ -20,7 +20,11 @@ import {
   Heart,
   Star,
   Share2,
-  Truck
+  Truck,
+  Menu,
+  X,
+  ChevronRight,
+  ChevronLeft
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { navigate } from '../utils/navigation';
@@ -32,6 +36,26 @@ interface DashboardLayoutProps {
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const location = useLocation();
   const { user, signOut } = useAuthStore();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  
+  // Check if screen is mobile on initial render and when window resizes
+  useEffect(() => {
+    const checkScreenSize = () => {
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      setIsSidebarOpen(!mobile);
+    };
+    
+    // Initial check
+    checkScreenSize();
+    
+    // Add event listener for window resize
+    window.addEventListener('resize', checkScreenSize);
+    
+    // Cleanup
+    return () => window.removeEventListener('resize', checkScreenSize);
+  }, []);
 
   const handleSignOut = async () => {
     await signOut();
@@ -106,37 +130,76 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
     { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
   ];
 
+  const toggleSidebar = () => {
+    setIsSidebarOpen(!isSidebarOpen);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
+      {/* Sidebar Overlay for Mobile */}
+      {isMobile && isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 z-40"
+          onClick={toggleSidebar}
+        />
+      )}
+
       {/* Sidebar */}
-      <div className="w-64 bg-white shadow-lg">
+      <div 
+        className={`fixed md:relative z-50 h-full transition-all duration-300 ease-in-out ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        } ${
+          isSidebarOpen ? 'w-64' : 'w-20'
+        } bg-white shadow-lg`}
+      >
         <div className="h-full flex flex-col">
+          {/* Toggle Button (Desktop) */}
+          {!isMobile && (
+            <button 
+              onClick={toggleSidebar}
+              className="absolute -right-3 top-20 bg-white rounded-full p-1 shadow-md border border-gray-200"
+            >
+              {isSidebarOpen ? (
+                <ChevronLeft className="h-4 w-4 text-gray-500" />
+              ) : (
+                <ChevronRight className="h-4 w-4 text-gray-500" />
+              )}
+            </button>
+          )}
+
           {/* User Info */}
           <div className="p-4 border-b border-gray-200">
-            <div className="font-semibold text-gray-900">{user?.email}</div>
-            <div className="text-sm text-gray-500 capitalize">{user?.role}</div>
-            {user?.role === 'chief' && (
-              <div className="mt-1 text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded-full inline-block">
-                Administrator
+            <div className={`${isSidebarOpen ? 'text-left' : 'text-center'}`}>
+              <div className={`font-semibold text-gray-900 ${isSidebarOpen ? '' : 'text-xs'} truncate`}>
+                {isSidebarOpen ? user?.email : user?.email?.charAt(0)}
               </div>
-            )}
+              <div className={`text-sm text-gray-500 capitalize ${isSidebarOpen ? '' : 'hidden'}`}>
+                {user?.role}
+              </div>
+              {user?.role === 'chief' && isSidebarOpen && (
+                <div className="mt-1 text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded-full inline-block">
+                  Administrator
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-4">
+          <nav className="flex-1 p-4 overflow-y-auto">
             <ul className="space-y-2">
               {menuItems.map((item) => (
                 <li key={item.path}>
                   <Link
                     to={item.path}
-                    className={`flex items-center px-4 py-2 rounded-lg text-sm ${
+                    className={`flex items-center px-3 py-2 rounded-md text-sm ${
                       location.pathname === item.path
                         ? 'bg-yellow-50 text-yellow-600'
                         : 'text-gray-600 hover:bg-gray-50'
                     }`}
+                    onClick={() => isMobile && setIsSidebarOpen(false)}
                   >
-                    <item.icon className="h-5 w-5 mr-3" />
-                    {item.label}
+                    <item.icon className="h-5 w-5 mr-3 flex-shrink-0" />
+                    <span className={`${isSidebarOpen ? '' : 'hidden'}`}>{item.label}</span>
                   </Link>
                 </li>
               ))}
@@ -147,18 +210,38 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
           <div className="p-4 border-t border-gray-200">
             <button
               onClick={handleSignOut}
-              className="flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg"
+              className={`flex items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg ${
+                isSidebarOpen ? '' : 'justify-center'
+              }`}
             >
-              <LogOut className="h-5 w-5 mr-3" />
-              Sign Out
+              <LogOut className="h-5 w-5 mr-3 flex-shrink-0" />
+              <span className={`${isSidebarOpen ? '' : 'hidden'}`}>Sign Out</span>
             </button>
           </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-auto">
-        <div className="p-8">
+      <div className="flex-1 overflow-auto w-full">
+        {/* Mobile Hamburger Menu Button - Positioned above content */}
+        {isMobile && (
+          <div className="sticky top-0 z-30 bg-gray-50 pt-4 pl-4">
+            <button
+              onClick={toggleSidebar}
+              className="p-2 rounded-lg bg-white shadow-lg text-gray-700 hover:bg-gray-100
+                        border border-gray-200 transition-all duration-200 hover:shadow-md
+                        focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-opacity-50"
+            >
+              {isSidebarOpen ? (
+                <X className="h-6 w-6 text-gray-700" />
+              ) : (
+                <Menu className="h-6 w-6 text-gray-700" />
+              )}
+            </button>
+          </div>
+        )}
+
+        <div className="p-4 md:p-8">
           {children}
         </div>
       </div>

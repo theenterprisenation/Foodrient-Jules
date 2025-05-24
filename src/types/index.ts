@@ -1,6 +1,6 @@
 export * from './user';
 
-export interface Vendor {
+interface Vendor {
   id: string;
   user_id: string;
   business_name: string;
@@ -33,7 +33,7 @@ export interface Product {
   vendor?: Vendor;
 }
 
-export interface PriceTier {
+interface PriceTier {
   participants: number;
   price: number;
 }
@@ -52,7 +52,7 @@ export interface GroupBuy {
   product?: Product;
 }
 
-export interface Order {
+interface Order {
   id: string;
   user_id: string;
   group_buy_id: string;
@@ -65,7 +65,7 @@ export interface Order {
   order_items?: OrderItem[];
 }
 
-export interface OrderItem {
+interface OrderItem {
   id: string;
   order_id: string;
   product_id: string;

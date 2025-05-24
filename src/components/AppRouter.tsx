@@ -1,7 +1,9 @@
-import React from 'react';
+import { useAuth } from './AuthProvider';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { LoadingScreen } from './LoadingScreen';
+import { supabase } from '../lib/supabase';
 
 // Public Pages
 import Home from '../pages/Home';
@@ -32,14 +34,35 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-  const { user, isLoading } = useAuthStore();
+  const { user, isLoading, status } = useAuthStore();
   const location = useLocation();
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
 
-  if (isLoading) {
+  // Check for existing session on initial load
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          // Session exists, let AuthProvider handle the user state
+          setIsCheckingSession(false);
+        } else {
+          setIsCheckingSession(false);
+        }
+      } catch (error) {
+        console.error('Session check failed:', error);
+        setIsCheckingSession(false);
+      }
+    };
+
+    checkSession();
+  }, []);
+
+  if (isLoading || isCheckingSession) {
     return <LoadingScreen />;
   }
 
-  if (!user) {
+  if (status === 'unauthenticated' || !user) {
     // Redirect to login but preserve the intended destination
     return <Navigate to="/auth" state={{ from: location.pathname }} replace />;
   }
@@ -52,12 +75,43 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
   return <>{children}</>;
 };
 
+const AuthAwareRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, status } = useAuthStore();
+  const location = useLocation();
+
+  if (status === 'authenticated' || user) {
+    // If logged in, redirect to appropriate dashboard based on role
+    const redirectPath = getDashboardPath(user?.role);
+    return <Navigate to={redirectPath} replace />;
+  }
+
+  return <>{children}</>;
+};
+
+const getDashboardPath = (role?: string): string => {
+  switch (role) {
+    case 'customer': return '/customer';
+    case 'vendor': return '/vendor';
+    case 'manager': return '/manager';
+    case 'coordinator': return '/coordinator';
+    case 'chief': return '/chief';
+    default: return '/';
+  }
+};
+
 export const AppRouter: React.FC = () => {
   return (
     <Routes>
       {/* Public Routes */}
       <Route path="/" element={<Home />} />
-      <Route path="/auth" element={<Auth />} />
+      <Route 
+        path="/auth" 
+        element={
+          <AuthAwareRoute>
+            <Auth />
+          </AuthAwareRoute>
+        } 
+      />
       <Route path="/about" element={<About />} />
       <Route path="/blog" element={<Blog />} />
       <Route path="/faq" element={<FAQ />} />
@@ -71,7 +125,7 @@ export const AppRouter: React.FC = () => {
       <Route path="/leaderboard" element={<LeaderBoard />} />
       <Route path="/vendors" element={<VendorShops />} />
 
-      {/* Customer Dashboard */}
+      {/* Protected Dashboards */}
       <Route
         path="/customer/*"
         element={
@@ -81,7 +135,6 @@ export const AppRouter: React.FC = () => {
         }
       />
 
-      {/* Vendor Dashboard */}
       <Route
         path="/vendor/*"
         element={
@@ -91,7 +144,6 @@ export const AppRouter: React.FC = () => {
         }
       />
 
-      {/* Manager Dashboard */}
       <Route
         path="/manager/*"
         element={
@@ -101,7 +153,6 @@ export const AppRouter: React.FC = () => {
         }
       />
 
-      {/* Coordinator Dashboard */}
       <Route
         path="/coordinator/*"
         element={
@@ -111,7 +162,6 @@ export const AppRouter: React.FC = () => {
         }
       />
 
-      {/* Chief Dashboard */}
       <Route
         path="/chief/*"
         element={
@@ -120,6 +170,9 @@ export const AppRouter: React.FC = () => {
           </ProtectedRoute>
         }
       />
+
+      {/* Fallback redirect */}
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 };

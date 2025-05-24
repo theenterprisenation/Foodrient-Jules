@@ -43,47 +43,64 @@ const CoordinatorManagers = () => {
     setError(null);
     
     try {
-      // Fetch managers with their assigned vendors count
+      // Fetch managers
       const { data: managersData, error: managersError } = await supabase
         .from('profiles')
         .select(`
           id,
           full_name,
-          email:auth.users!profiles_id_fkey(email),
           role,
           phone_number,
-          created_at,
-          assigned_vendors:manager_assignments!manager_id(count)
+          created_at
         `)
         .eq('role', 'manager');
         
       if (managersError) throw managersError;
       
+      // Fetch manager emails
+      const { data: managerEmails, error: emailsError } = await supabase
+        .from('users')
+        .select('id, email')
+        .in('id', managersData?.map(m => m.id) || []);
+      
+      if (emailsError) throw emailsError;
+      
+      // Fetch assigned vendors count
+      const { data: vendorCounts, error: vendorsError } = await supabase
+        .from('manager_assignments')
+        .select('manager_id, count(*)')
+        .in('manager_id', managersData?.map(m => m.id) || [])
+        .groupBy('manager_id');
+      
+      if (vendorsError) throw vendorsError;
+      
       // Fetch manager commissions
       const { data: managerCommissions, error: commissionsError } = await supabase
         .from('manager_commissions')
         .select('manager_id, amount')
-        .in('manager_id', managersData.map(m => m.id) || []);
+        .in('manager_id', managersData?.map(m => m.id) || []);
         
       if (commissionsError) throw commissionsError;
       
-      // Calculate total commissions for each manager
-      const managerTotals = managerCommissions.reduce((acc, curr) => {
-        acc[curr.manager_id] = (acc[curr.manager_id] || 0) + curr.amount;
+      // Create lookup maps
+      const emailMap = new Map(managerEmails?.map(u => [u.id, u.email]));
+      const vendorCountMap = new Map(vendorCounts?.map(v => [v.manager_id, parseInt(v.count)]));
+      const commissionMap = managerCommissions?.reduce((acc, curr) => {
+        acc.set(curr.manager_id, (acc.get(curr.manager_id) || 0) + curr.amount);
         return acc;
-      }, {});
+      }, new Map());
       
-      // Combine data
-      const processedManagers = managersData.map(manager => ({
+      // Combine all data
+      const processedManagers = (managersData || []).map(manager => ({
         ...manager,
-        email: manager.email?.[0]?.email || 'N/A',
-        assigned_vendors: manager.assigned_vendors?.[0]?.count || 0,
-        total_commissions: managerTotals[manager.id] || 0
+        email: emailMap.get(manager.id) || 'N/A',
+        assigned_vendors: vendorCountMap.get(manager.id) || 0,
+        total_commissions: commissionMap?.get(manager.id) || 0
       }));
       
       setManagers(processedManagers);
     } catch (error: any) {
-      console.error('Error fetching managers:', error);
+      console.error('Error fetching staff:', error);
       setError(error.message);
     } finally {
       setIsLoading(false);
@@ -245,7 +262,7 @@ const CoordinatorManagers = () => {
       <div className="mb-8">
         <h2 className="text-lg font-medium text-gray-900 mb-4">Manager Assignment Summary</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-          {managers.map(manager => (
+          {filteredManagers.map(manager => (
             <div key={manager.id} className="bg-white rounded-lg shadow-sm p-4">
               <div className="flex items-center">
                 <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center">

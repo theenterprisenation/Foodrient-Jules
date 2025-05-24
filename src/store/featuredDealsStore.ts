@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
-import { checkAuthEndpointHealth } from '../lib/serverCheck';
+import { checkServerHealth } from '../lib/serverCheck';
 import { NetworkMonitor } from '../utils/networkMonitor';
 import { isAdminUser } from '../lib/supabase';
 
@@ -56,18 +56,15 @@ export const useFeaturedDealsStore = create<FeaturedDealsState>((set, get) => ({
     while (attempt <= MAX_RETRIES) {
       try {
         // Check server health before each attempt
-        const health = await checkAuthEndpointHealth();
+        const health = await checkServerHealth();
         if (!health.healthy) {
-          // If it's a timeout issue, we'll retry
-          if (health.error?.includes('response time is too high')) {
-            attempt++;
-            if (attempt <= MAX_RETRIES) {
-              console.log(`Server health check failed, retrying in ${RETRY_DELAYS[attempt-1]}ms...`);
-              await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt-1]));
-              continue;
-            }
+          attempt++;
+          if (attempt <= MAX_RETRIES) {
+            console.log(`Server health check failed, retrying in ${RETRY_DELAYS[attempt-1]}ms...`);
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAYS[attempt-1]));
+            continue;
           }
-          throw new Error(`Server is currently experiencing issues. Please try again later. (${health.error})`);
+          throw new Error(health.error || 'Server is currently experiencing issues. Please try again later.');
         }
 
         // Create an abort controller for timeout
@@ -78,8 +75,7 @@ export const useFeaturedDealsStore = create<FeaturedDealsState>((set, get) => ({
           .from('featured_deals')
           .select('*')
           .eq('status', 'active')
-          .order('created_at', { ascending: false })
-          .abortSignal(controller.signal);
+          .order('created_at', { ascending: false });
 
         // Clear the timeout
         clearTimeout(timeoutId);

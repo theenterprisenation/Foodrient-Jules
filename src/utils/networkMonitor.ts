@@ -7,7 +7,7 @@ interface NetworkState {
   waitForConnection: (timeout?: number) => Promise<boolean>;
 }
 
-export const useNetworkStore = create<NetworkState>((set, get) => ({
+const useNetworkStore = create<NetworkState>((set, get) => ({
   isOnline: navigator.onLine,
   lastChecked: Date.now(),
   

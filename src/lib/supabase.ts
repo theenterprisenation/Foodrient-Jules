@@ -7,16 +7,40 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables');
 }
 
-// Client-side Supabase instance with anon key (for regular users)
+// Enhanced client configuration
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    persistSession: true, // Ensure session persistence is enabled
-    autoRefreshToken: true, // Enable automatic token refresh
-    detectSessionInUrl: false, // Disable session detection in URL to prevent conflicts
-    flowType: 'implicit', // Use implicit flow instead of PKCE for better compatibility
-    storage: localStorage, // Explicitly set storage to localStorage
-    storageKey: 'supabase.auth.token', // Set a specific storage key
-    debug: import.meta.env.DEV // Only enable debug in development
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: false,
+    flowType: 'implicit',
+    storage: {
+      getItem: (key) => {
+        // Handle potential localStorage access errors
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          console.warn('LocalStorage access denied', e);
+          return null;
+        }
+      },
+      setItem: (key, value) => {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          console.warn('LocalStorage write failed', e);
+        }
+      },
+      removeItem: (key) => {
+        try {
+          localStorage.removeItem(key);
+        } catch (e) {
+          console.warn('LocalStorage removal failed', e);
+        }
+      }
+    },
+    storageKey: 'sb-' + supabaseUrl + '.auth.token', // Unique key per project
+    debug: import.meta.env.DEV
   },
   global: {
     headers: {
@@ -34,10 +58,21 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   }
 });
 
-// Create a function to ensure a user profile exists
-export const ensureUserProfile = async (userId: string): Promise<void> => {
+// Session restoration helper
+export const restoreSession = async () => {
   try {
-    // Check if profile exists
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    return session;
+  } catch (error) {
+    console.error('Session restoration failed:', error);
+    return null;
+  }
+};
+
+// Create a function to ensure a user profile exists
+const ensureUserProfile = async (userId: string): Promise<void> => {
+  try {
     const { data, error } = await supabase
       .from('profiles')
       .select('id')
@@ -45,7 +80,6 @@ export const ensureUserProfile = async (userId: string): Promise<void> => {
       .single();
     
     if (error && error.code === 'PGRST116') {
-      // Profile doesn't exist, create it
       console.log('Creating profile for user:', userId);
       const { error: insertError } = await supabase
         .from('profiles')
@@ -68,12 +102,7 @@ export const isAdminUser = async (): Promise<boolean> => {
   try {
     const { data: { user }, error } = await supabase.auth.getUser();
     
-    if (error) {
-      console.error('Error getting user:', error);
-      return false;
-    }
-    
-    if (!user) return false;
+    if (error || !user) return false;
     
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
@@ -96,13 +125,7 @@ export const isAdminUser = async (): Promise<boolean> => {
 // Function to get the current user's role
 export const getUserRole = async (): Promise<string | null> => {
   try {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    
-    if (error) {
-      console.error('Error getting user:', error);
-      return null;
-    }
-    
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) return null;
     
     const { data: profile, error: profileError } = await supabase
@@ -111,16 +134,9 @@ export const getUserRole = async (): Promise<string | null> => {
       .eq('id', user.id)
       .single();
     
-    if (profileError) {
-      console.error('Error getting profile:', profileError);
-      
-      // If profile doesn't exist, create one
-      if (profileError.code === 'PGRST116') {
-        await ensureUserProfile(user.id);
-        return 'visitor'; // Default role
-      }
-      
-      return null;
+    if (profileError?.code === 'PGRST116') {
+      await ensureUserProfile(user.id);
+      return 'visitor';
     }
     
     return profile?.role || null;
@@ -130,13 +146,20 @@ export const getUserRole = async (): Promise<string | null> => {
   }
 };
 
-// Helper function to clear auth state
+// Enhanced auth state clearing
 export const clearAuthState = async (): Promise<void> => {
   try {
     await supabase.auth.signOut();
-    localStorage.clear(); // Clear all localStorage data
-    window.location.reload(); // Reload the page to reset the application state
+    // Only remove Supabase-related items
+    localStorage.removeItem('sb-' + supabaseUrl + '.auth.token');
+    sessionStorage.removeItem('sb-' + supabaseUrl + '.auth.token');
   } catch (error) {
     console.error('Error clearing auth state:', error);
   }
+};
+
+// New: Session validation helper
+export const validateCurrentSession = async (): Promise<boolean> => {
+  const session = await restoreSession();
+  return !!session && new Date(session.expires_at * 1000) > new Date();
 };

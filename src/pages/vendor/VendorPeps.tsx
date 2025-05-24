@@ -9,7 +9,8 @@ import {
   Calendar,
   TrendingUp,
   TrendingDown,
-  Filter
+  Filter,
+  RefreshCw
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { format } from 'date-fns';
@@ -42,9 +43,18 @@ const VendorPeps = () => {
     full_name: string | null;
     points_balance: number;
   } | null>(null);
+  const [isTransferring, setIsTransferring] = useState(false);
+  const [transferData, setTransferData] = useState({
+    recipientEmail: '',
+    amount: 0,
+    note: ''
+  });
+  const [isSending, setIsSending] = useState(false);
+  const [users, setUsers] = useState<{id: string; full_name: string; email: string; points_balance: number}[]>([]);
 
   useEffect(() => {
     fetchPepsData();
+    fetchUsers();
   }, [dateRange]);
 
   const fetchPepsData = async () => {
@@ -108,6 +118,34 @@ const VendorPeps = () => {
     }
   };
 
+  const fetchUsers = async () => {
+    try {
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, points_balance');
+        
+      if (profilesError) throw profilesError;
+      
+      const { data: emailsData, error: emailsError } = await supabase
+        .from('users')
+        .select('id, email');
+        
+      if (emailsError) throw emailsError;
+      
+      // Combine the data
+      const usersWithEmails = profiles?.map(profile => ({
+        id: profile.id,
+        full_name: profile.full_name || 'Unknown User',
+        email: emailsData?.find(e => e.id === profile.id)?.email || 'N/A',
+        points_balance: profile.points_balance || 0
+      })) || [];
+      
+      setUsers(usersWithEmails);
+    } catch (error: any) {
+      console.error('Error fetching users:', error);
+    }
+  };
+
   const handleExportTransactions = () => {
     try {
       // Create CSV content
@@ -146,6 +184,93 @@ const VendorPeps = () => {
     }
   };
 
+  const handleTransferPeps = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!userProfile) return;
+    
+    setIsSending(true);
+    setError(null);
+    
+    try {
+      // Find recipient by email
+      const recipient = users.find(u => u.email === transferData.recipientEmail);
+      if (!recipient) {
+        throw new Error('Recipient not found. Please check the email address.');
+      }
+      
+      // Validate amount
+      if (transferData.amount <= 0) {
+        throw new Error('Please enter a valid amount greater than 0.');
+      }
+      
+      if (transferData.amount > userProfile.points_balance) {
+        throw new Error('Insufficient PEPS balance for this transfer.');
+      }
+      
+      // Deduct from sender
+      const { error: deductError } = await supabase
+        .from('profiles')
+        .update({ points_balance: userProfile.points_balance - transferData.amount })
+        .eq('id', userProfile.id);
+        
+      if (deductError) throw deductError;
+      
+      // Add to recipient
+      const { error: addError } = await supabase
+        .from('profiles')
+        .update({ points_balance: recipient.points_balance + transferData.amount })
+        .eq('id', recipient.id);
+        
+      if (addError) throw addError;
+      
+      // Record transaction for sender
+      const { error: senderTransactionError } = await supabase
+        .from('affiliate_points')
+        .insert([{
+          user_id: userProfile.id,
+          points: -transferData.amount,
+          transaction_type: 'spent',
+          source: 'transfer_out',
+          reference_id: recipient.id
+        }]);
+        
+      if (senderTransactionError) throw senderTransactionError;
+      
+      // Record transaction for recipient
+      const { error: recipientTransactionError } = await supabase
+        .from('affiliate_points')
+        .insert([{
+          user_id: recipient.id,
+          points: transferData.amount,
+          transaction_type: 'earned',
+          source: 'transfer_in',
+          reference_id: userProfile.id
+        }]);
+        
+      if (recipientTransactionError) throw recipientTransactionError;
+      
+      setSuccessMessage(`Successfully transferred ${transferData.amount} PEPS to ${recipient.full_name}`);
+      setTransferData({
+        recipientEmail: '',
+        amount: 0,
+        note: ''
+      });
+      setIsTransferring(false);
+      fetchPepsData();
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 3000);
+    } catch (error: any) {
+      console.error('Error transferring PEPS:', error);
+      setError(error.message);
+    } finally {
+      setIsSending(false);
+    }
+  };
+
   const filteredTransactions = transactions.filter(transaction => {
     const matchesSearch = 
       transaction.source.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -180,6 +305,13 @@ const VendorPeps = () => {
           >
             <Download className="h-5 w-5 mr-2" />
             Export
+          </button>
+          <button
+            onClick={() => setIsTransferring(true)}
+            className="bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 flex items-center"
+          >
+            <ArrowRight className="h-5 w-5 mr-2" />
+            Transfer PEPS
           </button>
         </div>
       </div>
@@ -355,6 +487,83 @@ const VendorPeps = () => {
           </table>
         </div>
       </div>
+
+      {/* Transfer PEPS Modal */}
+      {isTransferring && (
+        <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              Transfer PEPS
+            </h3>
+            <form onSubmit={handleTransferPeps} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Recipient Email</label>
+                <input
+                  type="email"
+                  value={transferData.recipientEmail}
+                  onChange={(e) => setTransferData({ ...transferData, recipientEmail: e.target.value })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Amount</label>
+                <input
+                  type="number"
+                  min="1"
+                  max={userProfile?.points_balance || 0}
+                  value={transferData.amount}
+                  onChange={(e) => setTransferData({ ...transferData, amount: parseInt(e.target.value) })}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
+                  required
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Available balance: {userProfile?.points_balance || 0} PEPS
+                </p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Note (Optional)</label>
+                <textarea
+                  value={transferData.note}
+                  onChange={(e) => setTransferData({ ...transferData, note: e.target.value })}
+                  rows={3}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
+                  placeholder="Add a note for the recipient"
+                ></textarea>
+              </div>
+              
+              <div className="flex justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsTransferring(false)}
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSending || !transferData.recipientEmail || transferData.amount <= 0 || transferData.amount > (userProfile?.points_balance || 0)}
+                  className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                >
+                  {isSending ? (
+                    <>
+                      <RefreshCw className="h-5 w-5 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <ArrowRight className="h-5 w-5 mr-2" />
+                      Transfer PEPS
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* PEPS Information */}
       <div className="mt-8 bg-white rounded-lg shadow-sm p-6">

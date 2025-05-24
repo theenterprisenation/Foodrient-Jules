@@ -123,9 +123,7 @@ const CustomerMessages = () => {
             id,
             user_id,
             role,
-            user:profiles(
-              full_name
-            )
+            user:profiles(full_name)
           )
         `)
         .in('id', conversationIds)
@@ -140,8 +138,7 @@ const CustomerMessages = () => {
       
       const { data: emailsData, error: emailsError } = await supabase
         .from('users')
-        .select('id, email')
-        .in('id', userIds);
+        .select('id, email');
         
       if (emailsError) throw emailsError;
       

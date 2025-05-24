@@ -20,7 +20,7 @@ export const navigate = (to: string, options?: { replace?: boolean }) => {
 };
 
 // Hook to use in components
-export const useNavigate = () => {
+const useNavigate = () => {
   const navigate = useReactNavigate();
   setNavigate(navigate);
   return navigate;

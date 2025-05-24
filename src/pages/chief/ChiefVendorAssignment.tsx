@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   Store, 
-  Link as LinkIcon, 
+  LinkIcon, 
   Unlink, 
   Search, 
   CheckCircle, 
@@ -50,69 +50,57 @@ const ChiefVendorAssignment = () => {
   const fetchData = async () => {
     setIsLoading(true);
     setError(null);
-    
+
     try {
-      // Fetch managers
+      // First, fetch profiles with role 'manager'
       const { data: managersData, error: managersError } = await supabase
         .from('profiles')
-        .select(`
-          id,
-          full_name,
-          email:auth.users(email)
-        `)
+        .select('id, full_name, email')
         .eq('role', 'manager');
-        
+
       if (managersError) throw managersError;
-      
+
       // Process managers data
       const processedManagers = managersData.map(manager => ({
         id: manager.id,
         full_name: manager.full_name || 'Unnamed Manager',
-        email: manager.email?.[0]?.email || 'N/A',
+        email: manager.email || 'N/A',
         assigned_vendors: 0 // Will be updated below
       }));
-      
+
       // Fetch manager assignments count
       const { data: assignmentsData, error: assignmentsError } = await supabase
         .from('manager_assignments')
-        .select('manager_id, count')
-        .select('manager_id')
-        .select('*');
-        
+        .select('manager_id');
+
       if (assignmentsError) throw assignmentsError;
-      
+
       // Count assignments per manager
-      const assignmentCounts = {};
-      assignmentsData.forEach(assignment => {
-        assignmentCounts[assignment.manager_id] = (assignmentCounts[assignment.manager_id] || 0) + 1;
-      });
-      
+      const assignmentCounts = assignmentsData.reduce((acc, curr) => {
+        acc[curr.manager_id] = (acc[curr.manager_id] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
       // Update manager assignments count
       processedManagers.forEach(manager => {
         manager.assigned_vendors = assignmentCounts[manager.id] || 0;
       });
-      
+
       setManagers(processedManagers);
-      
+
       // Fetch vendors with their assigned managers
       const { data: vendorsData, error: vendorsError } = await supabase
         .from('vendors')
-        .select(`
-          id,
-          business_name,
-          contact_email,
-          status,
-          manager_assignments(manager_id)
-        `);
-        
+        .select('id, business_name, contact_email, status, manager_assignments(manager_id)');
+
       if (vendorsError) throw vendorsError;
-      
+
       // Get manager names for each assignment
       const managerMap = processedManagers.reduce((acc, manager) => {
         acc[manager.id] = manager.full_name;
         return acc;
-      }, {});
-      
+      }, {} as Record<string, string>);
+
       // Process vendor data
       const processedVendors = vendorsData.map(vendor => {
         const managerId = vendor.manager_assignments?.[0]?.manager_id || null;
@@ -125,7 +113,7 @@ const ChiefVendorAssignment = () => {
           manager_name: managerId ? managerMap[managerId] : null
         };
       });
-      
+
       setVendors(processedVendors);
     } catch (error: any) {
       console.error('Error fetching data:', error);
@@ -147,18 +135,15 @@ const ChiefVendorAssignment = () => {
     if (!window.confirm('Are you sure you want to remove this vendor assignment?')) {
       return;
     }
-    
     try {
       const { error } = await supabase
         .from('manager_assignments')
         .delete()
         .eq('vendor_id', vendorId);
-        
       if (error) throw error;
-      
       setSuccessMessage('Vendor unassigned successfully');
       fetchData();
-      
+
       // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccessMessage(null);
@@ -171,43 +156,41 @@ const ChiefVendorAssignment = () => {
 
   const handleSubmitAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!assignmentData || !assignmentData.manager_id || !assignmentData.vendor_id) {
       setError('Please select a manager');
       return;
     }
-    
     try {
       // Check if vendor is already assigned
       const { data: existingAssignment, error: checkError } = await supabase
         .from('manager_assignments')
         .select('id')
         .eq('vendor_id', assignmentData.vendor_id);
-        
+
       if (checkError) throw checkError;
-      
+
       if (existingAssignment && existingAssignment.length > 0) {
         // Update existing assignment
         const { error } = await supabase
           .from('manager_assignments')
           .update({ manager_id: assignmentData.manager_id })
           .eq('vendor_id', assignmentData.vendor_id);
-          
+
         if (error) throw error;
       } else {
         // Create new assignment
         const { error } = await supabase
           .from('manager_assignments')
           .insert([assignmentData]);
-          
+
         if (error) throw error;
       }
-      
+
       setSuccessMessage('Vendor assigned successfully');
       fetchData();
       setIsAssigning(false);
       setAssignmentData(null);
-      
+
       // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccessMessage(null);
@@ -222,10 +205,8 @@ const ChiefVendorAssignment = () => {
     const matchesSearch = 
       vendor.business_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       vendor.contact_email.toLowerCase().includes(searchTerm.toLowerCase());
-      
     const matchesManager = selectedManager === '' || vendor.manager_id === selectedManager;
     const matchesStatus = selectedVendorStatus === 'all' || vendor.status === selectedVendorStatus;
-    
     return matchesSearch && matchesManager && matchesStatus;
   });
 
@@ -279,7 +260,6 @@ const ChiefVendorAssignment = () => {
             ))}
           </select>
         </div>
-        
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Vendor Status</label>
           <select
@@ -427,7 +407,6 @@ const ChiefVendorAssignment = () => {
             <h3 className="text-lg font-medium text-gray-900 mb-4">
               Assign Vendor to Manager
             </h3>
-            
             <div className="mb-4">
               <p className="text-sm text-gray-600">
                 Assigning vendor: <span className="font-medium text-gray-900">
@@ -435,7 +414,6 @@ const ChiefVendorAssignment = () => {
                 </span>
               </p>
             </div>
-            
             <form onSubmit={handleSubmitAssignment} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700">Select Manager</label>
@@ -453,7 +431,6 @@ const ChiefVendorAssignment = () => {
                   ))}
                 </select>
               </div>
-              
               <div className="flex justify-end space-x-3 pt-4">
                 <button
                   type="button"

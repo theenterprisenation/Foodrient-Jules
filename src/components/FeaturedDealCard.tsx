@@ -1,3 +1,4 @@
+import { useAuth } from './AuthProvider';
 import React from 'react';
 import { ShoppingCart, Package, Edit, Trash2 } from 'lucide-react';
 import type { FeaturedDeal } from '../store/featuredDealsStore';

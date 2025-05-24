@@ -48,6 +48,7 @@ interface Review {
     name: string;
     vendor_id: string;
     vendor: {
+      id: string;
       business_name: string;
     };
   };
@@ -109,40 +110,89 @@ const CoordinatorReviews = () => {
     setError(null);
     
     try {
-      // Fetch all reviews
+      // First, get all products
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select(`
+          id,
+          name,
+          vendor_id,
+          vendor:vendors(
+            id,
+            business_name
+          )
+        `);
+        
+      if (productsError) throw productsError;
+      
+      if (!productsData || productsData.length === 0) {
+        setReviews([]);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Create a map of products for quick lookup
+      const productsMap = new Map();
+      productsData.forEach(product => {
+        productsMap.set(product.id, {
+          name: product.name,
+          vendor_id: product.vendor_id,
+          vendor: product.vendor
+        });
+      });
+      
+      // Then, fetch all reviews
       const { data: reviewsData, error: reviewsError } = await supabase
         .from('product_reviews')
-        .select(`
-          *,
-          product:products(
-            name,
-            vendor_id,
-            vendor:vendors(
-              business_name
-            )
-          ),
-          user:profiles(
-            full_name,
-            email:auth.users!profiles_id_fkey(email)
-          )
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
         
       if (reviewsError) throw reviewsError;
       
-      // Process reviews
-      const processedReviews = reviewsData?.map(review => ({
-        ...review,
-        user: {
-          ...review.user,
-          email: review.user?.email?.[0]?.email || 'N/A'
-        }
-      })) || [];
+      // Then, fetch user profiles separately
+      const userIds = reviewsData?.map(review => review.user_id) || [];
       
-      setReviews(processedReviews);
+      const { data: profiles, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name')
+        .in('id', userIds);
+        
+      if (profilesError) throw profilesError;
+      
+      // Fetch user emails separately
+      const { data: users, error: usersError } = await supabase
+        .from('users')
+        .select('id, email')
+        .in('id', userIds);
+        
+      if (usersError) {
+        // If we can't get emails from auth table, just continue with profiles
+        console.warn('Could not fetch user emails:', usersError);
+      }
+      
+      // Create a map of user profiles
+      const profileMap = new Map();
+      profiles?.forEach(profile => {
+        profileMap.set(profile.id, {
+          full_name: profile.full_name,
+          email: users?.find(u => u.id === profile.id)?.email || 'N/A'
+        });
+      });
+      
+      // Combine the data
+      const processedReviews = reviewsData?.map(review => {
+        const product = productsMap.get(review.product_id);
+        return {
+          ...review,
+          product: product || { name: 'Unknown Product', vendor_id: null, vendor: null },
+          user: profileMap.get(review.user_id) || { full_name: 'Unknown User', email: 'N/A' }
+        };
+      }).filter(review => review.product.vendor_id !== null);
+      
+      setReviews(processedReviews || []);
       
       // Calculate metrics
-      if (processedReviews.length > 0) {
+      if (processedReviews && processedReviews.length > 0) {
         // Average rating
         const totalRating = processedReviews.reduce((sum, review) => sum + review.rating, 0);
         const averageRating = totalRating / processedReviews.length;
@@ -162,10 +212,10 @@ const CoordinatorReviews = () => {
         const vendorReviewCounts = {};
         
         processedReviews.forEach(review => {
-          const vendorId = review.product.vendor_id;
-          const vendorName = review.product.vendor.business_name;
+          const vendorId = review.product.vendor?.id;
+          const vendorName = review.product.vendor?.business_name;
           
-          if (!vendorRatings[vendorId]) {
+          if (vendorId && vendorName && !vendorRatings[vendorId]) {
             vendorRatings[vendorId] = {
               id: vendorId,
               name: vendorName,
@@ -174,8 +224,10 @@ const CoordinatorReviews = () => {
             };
           }
           
-          vendorRatings[vendorId].totalRating += review.rating;
-          vendorRatings[vendorId].reviewCount += 1;
+          if (vendorId && vendorRatings[vendorId]) {
+            vendorRatings[vendorId].totalRating += review.rating;
+            vendorRatings[vendorId].reviewCount += 1;
+          }
         });
         
         const vendorRatingsArray = Object.values(vendorRatings).map((vendor: any) => ({
@@ -248,7 +300,7 @@ const CoordinatorReviews = () => {
           format(new Date(review.created_at), 'yyyy-MM-dd'),
           `"${review.user.full_name.replace(/"/g, '""')}"`,
           `"${review.product.name.replace(/"/g, '""')}"`,
-          `"${review.product.vendor.business_name.replace(/"/g, '""')}"`,
+          `"${review.product.vendor?.business_name.replace(/"/g, '""') || 'Unknown'}"`,
           review.rating,
           `"${(review.comment || '').replace(/"/g, '""')}"`,
           `"${(review.vendor_response || '').replace(/"/g, '""')}"`
@@ -283,10 +335,10 @@ const CoordinatorReviews = () => {
       review.comment?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       review.product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       review.user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      review.product.vendor.business_name.toLowerCase().includes(searchTerm.toLowerCase());
+      review.product.vendor?.business_name.toLowerCase().includes(searchTerm.toLowerCase());
       
     const matchesRating = selectedRating === 'all' || review.rating === selectedRating;
-    const matchesVendor = selectedVendor === 'all' || review.product.vendor_id === selectedVendor;
+    const matchesVendor = selectedVendor === 'all' || review.product.vendor?.id === selectedVendor;
     
     return matchesSearch && matchesRating && matchesVendor;
   });
@@ -614,7 +666,7 @@ const CoordinatorReviews = () => {
                       <div className="text-sm text-gray-500">
                         <div className="flex items-center">
                           <Store className="h-4 w-4 mr-1" />
-                          {review.product.vendor.business_name}
+                          {review.product.vendor?.business_name || 'Unknown Vendor'}
                         </div>
                         <div className="text-xs text-gray-400 mt-1">
                           {review.product.name}
@@ -680,7 +732,7 @@ const CoordinatorReviews = () => {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-medium text-gray-900">{selectedReview.product.vendor.business_name}</p>
+                  <p className="text-sm font-medium text-gray-900">{selectedReview.product.vendor?.business_name || 'Unknown Vendor'}</p>
                   <p className="text-xs text-gray-500">{selectedReview.product.name}</p>
                 </div>
               </div>

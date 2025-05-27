@@ -8,7 +8,9 @@ import {
   Plus, 
   CheckCircle, 
   AlertTriangle,
-  Bell
+  Bell,
+  Tag,
+  ShoppingBag
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { format } from 'date-fns';
@@ -96,7 +98,7 @@ const CustomerMessages = () => {
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) return;
       
       // First, get all conversations where the user is a participant
       const { data: participations, error: participationsError } = await supabase
@@ -181,7 +183,7 @@ const CustomerMessages = () => {
       setConversations(conversationsWithLastMessage);
     } catch (error: any) {
       console.error('Error fetching conversations:', error);
-      setError(error.message);
+      setError('Failed to load conversations');
     } finally {
       setIsLoading(false);
     }
@@ -240,7 +242,7 @@ const CustomerMessages = () => {
       }
     } catch (error: any) {
       console.error('Error fetching messages:', error);
-      setError(error.message);
+      setError('Failed to load messages');
     }
   };
 
@@ -304,7 +306,7 @@ const CustomerMessages = () => {
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) return;
       
       const { error } = await supabase
         .from('messages')
@@ -320,7 +322,7 @@ const CustomerMessages = () => {
       setNewMessage('');
     } catch (error: any) {
       console.error('Error sending message:', error);
-      setError(error.message);
+      setError('Failed to send message');
     }
   };
 
@@ -486,7 +488,8 @@ const CustomerMessages = () => {
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.map((message) => {
-                  const isOwnMessage = message.sender_id === supabase.auth.getUser().data.user?.id;
+                  const { data: { user } } = supabase.auth.getUser();
+                  const isOwnMessage = user && message.sender_id === user.id;
                   
                   return (
                     <div

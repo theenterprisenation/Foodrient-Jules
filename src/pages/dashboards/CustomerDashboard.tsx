@@ -1,10 +1,11 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { DashboardLayout } from '../../components/DashboardLayout';
 import { ErrorBoundary } from 'react-error-boundary';
 import { useMinimalAuth } from '../../hooks/useMinimalAuth';
 import { useLogMountUnmount } from '../../utils/debugMounts';
 import { useSafeLoaderTimeout } from '../../hooks/useSafeLoaderTimeout';
+import { Loader2 } from 'lucide-react';
 
 // Dashboard Pages
 import CustomerOverview from '../customer/CustomerOverview';
@@ -44,8 +45,8 @@ const CustomerDashboard = () => {
 
   useEffect(() => {
     // Check if user is authenticated
-    if (!user && !safeLoading && location.pathname !== '/auth') {
-      navigate('/auth');
+    if (!user && !safeLoading && !location.pathname.startsWith('/auth')) {
+      navigate('/auth', { replace: true });
     }
   }, [user, safeLoading, navigate, location.pathname]);
 
@@ -54,14 +55,18 @@ const CustomerDashboard = () => {
     return <Navigate to="/customer/dashboard" replace />;
   }
 
-  // If still loading, show nothing
+  // Show loading state while auth status is being determined
   if (safeLoading) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-yellow-500" />
+      </div>
+    );
   }
 
-  // If no user and not loading, don't render the dashboard
+  // If no user and not loading, redirect to auth
   if (!user && !safeLoading) {
-    return null;
+    return <Navigate to="/auth" replace />;
   }
 
   return (

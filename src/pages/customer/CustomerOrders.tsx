@@ -71,9 +71,24 @@ const CustomerOrders = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isViewingDetails, setIsViewingDetails] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
-    fetchOrders();
+    const checkAuth = async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        setIsAuthenticated(!!user);
+        if (user) {
+          fetchOrders();
+        } else {
+          setIsLoading(false);
+        }
+      } catch (error) {
+        setIsLoading(false);
+      }
+    };
+
+    checkAuth();
   }, []);
 
   const fetchOrders = async () => {
@@ -83,7 +98,7 @@ const CustomerOrders = () => {
     try {
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) return;
       
       // Fetch orders with items
       const { data: ordersData, error: ordersError } = await supabase
@@ -133,8 +148,7 @@ const CustomerOrders = () => {
       
       setOrders(ordersWithTracking);
     } catch (error: any) {
-      console.error('Error fetching orders:', error);
-      setError(error.message);
+      setError('Failed to load orders. Please try again.');
     } finally {
       setIsLoading(false);
     }

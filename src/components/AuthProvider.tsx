@@ -49,50 +49,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const syncChannel = useRef<BroadcastChannel | null>(null);
   const lastActivityTime = useRef(Date.now());
 
-  // Network change handler (moved up before useEffect)
-  const handleNetworkChange = useCallback((isOnline: boolean) => {
-    if (networkDebounceTimer.current) {
-      clearTimeout(networkDebounceTimer.current);
-    }
-
-    networkDebounceTimer.current = setTimeout(() => {
-      if (!isMounted.current) return;
-      
-      if (isOnline) {
-        refreshSessionWithRetry().catch(console.error);
-      } else {
-        updateState({
-          status: 'error',
-          error: 'No internet connection'
-        });
-        if (refreshTimer.current) clearTimeout(refreshTimer.current);
-        if (validationTimer.current) clearInterval(validationTimer.current);
-      }
-    }, NETWORK_DEBOUNCE_DELAY);
-  }, []);
-
-  // Session synchronization between tabs
-  const setupSyncChannel = () => {
-    syncChannel.current = new BroadcastChannel(TAB_SYNC_CHANNEL);
-    syncChannel.current.onmessage = (event) => {
-      if (event.data.type === 'SESSION_UPDATE') {
-        if (event.data.checksum !== state.sessionChecksum) {
-          refreshSessionWithRetry().catch(console.error);
-        }
-      }
-    };
-  };
-
-  const broadcastSessionUpdate = (checksum: string) => {
-    if (syncChannel.current) {
-      syncChannel.current.postMessage({
-        type: 'SESSION_UPDATE',
-        checksum,
-        timestamp: Date.now()
-      });
-    }
-  };
-
   // State updater with checks
   const updateState = async (partialState: Partial<AuthState>) => {
     if (!isMounted.current) return;
@@ -165,7 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Core authentication initialization
+  // Core authentication initialization - THE CRITICAL FIX
   const initializeAuth = useCallback(async (): Promise<void> => {
     if (initializeAttempted.current) return;
     initializeAttempted.current = true;
@@ -174,20 +130,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     lastActivityTime.current = Date.now();
 
     try {
-      const health = await checkServerStatus(true);
-      if (!health.auth) throw new Error(health.message || 'Service unavailable');
+      // FIRST: Check localStorage directly for existing session
+      const storageKey = `sb-${supabase.supabaseUrl}.auth.token`;
+      const sessionStr = localStorage.getItem(storageKey);
+      const session = sessionStr ? JSON.parse(sessionStr) : null;
 
-      // Wait for Supabase to restore session from localStorage
-      const { data: { session }, error } = await supabase.auth.getSession();
+      if (session?.expires_at && session.expires_at * 1000 > Date.now()) {
+        // We have a valid session in localStorage
+        await updateState({
+          user: session.user,
+          status: 'authenticated',
+          serverStatus: 'healthy'
+        });
+        scheduleTokenRefresh(session.expires_at * 1000);
+        return;
+      }
+
+      // SECOND: If no localStorage session, check with Supabase
+      const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
       
       if (error) throw error;
-      if (!session) {
+      if (!supabaseSession) {
         await updateState({ user: null, status: 'unauthenticated' });
         return;
       }
 
-      // Additional validation
-      const isValid = await validateSession(session);
+      // Validate whatever session we found
+      const isValid = await validateSession(supabaseSession);
       if (!isValid) {
         await supabase.auth.signOut();
         await updateState({ user: null, status: 'unauthenticated' });
@@ -195,12 +164,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       await updateState({
-        user: session.user,
+        user: supabaseSession.user,
         status: 'authenticated',
         serverStatus: 'healthy'
       });
 
-      scheduleTokenRefresh(session.expires_at * 1000);
+      scheduleTokenRefresh(supabaseSession.expires_at * 1000);
     } catch (error: any) {
       console.error('Auth init error:', error);
       await updateState({
@@ -296,6 +265,98 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }, SESSION_VALIDATION_INTERVAL);
   };
+
+  // Network change handler
+  const handleNetworkChange = useCallback((isOnline: boolean) => {
+    if (networkDebounceTimer.current) {
+      clearTimeout(networkDebounceTimer.current);
+    }
+
+    networkDebounceTimer.current = setTimeout(() => {
+      if (!isMounted.current) return;
+      
+      if (isOnline) {
+        refreshSessionWithRetry().catch(console.error);
+      } else {
+        updateState({
+          status: 'error',
+          error: 'No internet connection'
+        });
+        if (refreshTimer.current) clearTimeout(refreshTimer.current);
+        if (validationTimer.current) clearInterval(validationTimer.current);
+      }
+    }, NETWORK_DEBOUNCE_DELAY);
+  }, [refreshSessionWithRetry]);
+
+  // Session synchronization between tabs
+  const setupSyncChannel = () => {
+    syncChannel.current = new BroadcastChannel(TAB_SYNC_CHANNEL);
+    syncChannel.current.onmessage = (event) => {
+      if (event.data.type === 'SESSION_UPDATE') {
+        if (event.data.checksum !== state.sessionChecksum) {
+          refreshSessionWithRetry().catch(console.error);
+        }
+      }
+    };
+  };
+
+  const broadcastSessionUpdate = (checksum: string) => {
+    if (syncChannel.current) {
+      syncChannel.current.postMessage({
+        type: 'SESSION_UPDATE',
+        checksum,
+        timestamp: Date.now()
+      });
+    }
+  };
+
+  // Auth state subscription
+  useUnmountAwareSubscription(() => {
+    const { data } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (!isMounted.current) return;
+
+      switch (event) {
+        case 'SIGNED_OUT':
+          if (refreshTimer.current) clearTimeout(refreshTimer.current);
+          if (validationTimer.current) clearInterval(validationTimer.current);
+          await updateState({
+            user: null,
+            status: 'unauthenticated',
+            sessionChecksum: null
+          });
+          break;
+          
+        case 'TOKEN_REFRESHED':
+        case 'SIGNED_IN':
+          if (newSession) {
+            const isValid = await validateSession(newSession);
+            if (isValid) {
+              await updateState({
+                user: newSession.user,
+                status: 'authenticated'
+              });
+              scheduleTokenRefresh(newSession.expires_at * 1000);
+            } else {
+              await supabase.auth.signOut();
+            }
+          }
+          break;
+          
+        case 'USER_UPDATED':
+          if (newSession) {
+            await updateState({ user: newSession.user });
+          }
+          break;
+      }
+    });
+
+    authSubscription.current = data.subscription;
+    return () => {
+      if (authSubscription.current) {
+        authSubscription.current.unsubscribe();
+      }
+    };
+  });
 
   // Initial setup
   useEffect(() => {

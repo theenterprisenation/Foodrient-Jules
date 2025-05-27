@@ -54,7 +54,7 @@ const CustomerReferrals = () => {
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) return;
       
       // Fetch user's referral code
       const { data: profile, error: profileError } = await supabase
@@ -115,7 +115,7 @@ const CustomerReferrals = () => {
       });
     } catch (error: any) {
       console.error('Error fetching referral data:', error);
-      setError(error.message);
+      setError('Failed to load referral data');
     } finally {
       setIsLoading(false);
     }
@@ -138,7 +138,7 @@ const CustomerReferrals = () => {
       setReferralLink(`${window.location.origin}/signup?ref=${code}`);
     } catch (error: any) {
       console.error('Error generating referral code:', error);
-      setError(error.message);
+      setError('Failed to generate referral code');
     }
   };
 

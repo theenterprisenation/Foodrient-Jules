@@ -10,14 +10,13 @@ import {
   CheckCircle,
   Search
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
 import { Link } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
+import { useMinimalAuth } from '../../hooks/useMinimalAuth';
 
 interface FavoriteVendor {
   id: string;
   user_id: string;
-  vendor_id: string;
-  created_at: string;
   vendor: {
     id: string;
     business_name: string;
@@ -28,6 +27,7 @@ interface FavoriteVendor {
     product_count: number;
     rating: number;
   };
+  created_at: string;
 }
 
 const CustomerFavorites = () => {
@@ -36,41 +36,68 @@ const CustomerFavorites = () => {
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const { user, isLoading: authLoading } = useMinimalAuth();
 
   useEffect(() => {
-    fetchFavorites();
-  }, []);
+    if (user) {
+      fetchFavorites();
+    }
+  }, [user]);
 
   const fetchFavorites = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const { data, error } = await supabase
+      if (!user) return;
+      
+      // First, get the favorite vendors
+      const { data: favoritesData, error: favoritesError } = await supabase
         .from('favorite_vendors')
-        .select(`
-          *,
-          vendor:vendors(
-            id,
-            business_name,
-            description,
-            logo_url,
-            status,
-            location:vendor_locations(address)
-          )
-        `);
+        .select('*')
+        .eq('user_id', user.id);
         
-      if (error) throw error;
+      if (favoritesError) throw favoritesError;
       
-      // Fetch product counts for each vendor
-      const vendorIds = data?.map(fav => fav.vendor_id) || [];
+      if (!favoritesData || favoritesData.length === 0) {
+        setFavorites([]);
+        setIsLoading(false);
+        return;
+      }
       
+      // Get vendor IDs from favorites
+      const vendorIds = favoritesData.map(fav => fav.vendor_id);
+      
+      // Fetch vendor details separately
+      const { data: vendorsData, error: vendorsError } = await supabase
+        .from('vendors')
+        .select(`
+          id,
+          business_name,
+          description,
+          logo_url,
+          status
+        `)
+        .in('id', vendorIds);
+        
+      if (vendorsError) throw vendorsError;
+      
+      // Create a map of vendors for quick lookup
+      const vendorsMap = new Map();
+      vendorsData?.forEach(vendor => {
+        vendorsMap.set(vendor.id, {
+          ...vendor,
+          location: 'Lagos, Nigeria', // Mock data
+          product_count: 0,
+          rating: 0
+        });
+      });
+      
+      // Fetch product counts
       const { data: productCounts, error: productsError } = await supabase
         .from('products')
-        .select('vendor_id, count')
-        .in('vendor_id', vendorIds)
         .select('vendor_id')
-        .select('*');
+        .in('vendor_id', vendorIds);
         
       if (productsError) throw productsError;
       
@@ -80,35 +107,36 @@ const CustomerFavorites = () => {
         productCountMap[product.vendor_id] = (productCountMap[product.vendor_id] || 0) + 1;
       });
       
-      // Fetch vendor ratings
-      const { data: vendorMetrics, error: metricsError } = await supabase
-        .from('vendor_metrics')
-        .select('vendor_id, rating')
-        .in('vendor_id', vendorIds);
-        
-      if (metricsError) throw metricsError;
-      
-      // Create ratings map
-      const ratingsMap = {};
-      vendorMetrics?.forEach(metric => {
-        ratingsMap[metric.vendor_id] = metric.rating;
+      // Update vendor data with product counts
+      vendorIds.forEach(id => {
+        const vendor = vendorsMap.get(id);
+        if (vendor) {
+          vendor.product_count = productCountMap[id] || 0;
+        }
       });
       
-      // Process favorites with additional data
-      const processedFavorites = data?.map(favorite => ({
-        ...favorite,
-        vendor: {
-          ...favorite.vendor,
-          product_count: productCountMap[favorite.vendor_id] || 0,
-          rating: ratingsMap[favorite.vendor_id] || 0,
-          location: favorite.vendor.location?.[0]?.address || 'Location not specified'
-        }
-      })) || [];
-      
+      // Combine all data
+      const processedFavorites = favoritesData.map(favorite => {
+        const vendor = vendorsMap.get(favorite.vendor_id);
+        return {
+          ...favorite,
+          vendor: vendor || {
+            id: favorite.vendor_id,
+            business_name: 'Unknown Vendor',
+            description: null,
+            logo_url: null,
+            status: 'active',
+            location: 'Unknown Location',
+            product_count: 0,
+            rating: 0
+          }
+        };
+      });
+        
       setFavorites(processedFavorites);
     } catch (error: any) {
       console.error('Error fetching favorites:', error);
-      setError(error.message);
+      setError('Failed to load favorites');
     } finally {
       setIsLoading(false);
     }
@@ -136,7 +164,7 @@ const CustomerFavorites = () => {
       }, 3000);
     } catch (error: any) {
       console.error('Error removing favorite:', error);
-      setError(error.message);
+      setError('Failed to remove favorite');
     }
   };
 

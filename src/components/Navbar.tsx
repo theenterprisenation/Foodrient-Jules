@@ -38,10 +38,10 @@ const Navbar = () => {
   const menuItems = user ? [
     { icon: LayoutDashboard, label: 'Dashboard', path: `${getBasePath()}/dashboard` },
     { icon: MessageSquare, label: 'Messages', path: `${getBasePath()}/messages` },
-    { icon: Package, label: 'Products', path: `${getBasePath()}/products` },
-    { icon: ShoppingCart, label: 'Orders', path: `${getBasePath()}/orders` },
-    { icon: Users, label: 'Customers', path: `${getBasePath()}/customers` },
-    { icon: BarChart, label: 'Analytics', path: `${getBasePath()}/analytics` }
+   /* { icon: Package, label: 'Products', path: `${getBasePath()}/products` }, */
+   { icon: ShoppingCart, label: 'Orders', path: `${getBasePath()}/orders` }
+   /* { icon: Users, label: 'Customers', path: `${getBasePath()}/customers` }, */
+   /* { icon: BarChart, label: 'Analytics', path: `${getBasePath()}/analytics` } */
   ] : [];
   
   const handleSignOut = async () => {

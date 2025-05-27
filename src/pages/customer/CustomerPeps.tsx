@@ -75,7 +75,7 @@ const CustomerPeps = () => {
     try {
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) return;
       
       // Fetch user profile
       const { data: profile, error: profileError } = await supabase
@@ -123,7 +123,7 @@ const CustomerPeps = () => {
       });
     } catch (error: any) {
       console.error('Error fetching PEPS data:', error);
-      setError(error.message);
+      setError('Failed to load PEPS data');
     } finally {
       setIsLoading(false);
     }
@@ -196,7 +196,7 @@ const CustomerPeps = () => {
       }, 3000);
     } catch (error: any) {
       console.error('Error exporting transactions:', error);
-      setError(error.message);
+      setError('Failed to export transactions');
     }
   };
 

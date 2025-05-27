@@ -15,6 +15,7 @@ import {
 import { supabase } from '../../lib/supabase';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
+import { useMinimalAuth } from '../../hooks/useMinimalAuth';
 
 interface Review {
   id: string;
@@ -48,38 +49,97 @@ const CustomerReviews = () => {
   const [selectedReview, setSelectedReview] = useState<Review | null>(null);
   const [editRating, setEditRating] = useState(0);
   const [editComment, setEditComment] = useState('');
+  const { user, isLoading: authLoading } = useMinimalAuth();
 
   useEffect(() => {
-    fetchReviews();
-  }, []);
+    if (user) {
+      fetchReviews();
+    }
+  }, [user]);
 
   const fetchReviews = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
       
-      const { data, error } = await supabase
+      // First, get the product reviews
+      const { data: reviewsData, error: reviewsError } = await supabase
         .from('product_reviews')
-        .select(`
-          *,
-          product:products(
-            name,
-            image_url,
-            vendor:vendors(
-              id,
-              business_name
-            )
-          )
-        `)
+        .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
         
-      if (error) throw error;
+      if (reviewsError) throw reviewsError;
       
-      setReviews(data || []);
+      if (!reviewsData || reviewsData.length === 0) {
+        setReviews([]);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Get product IDs from reviews
+      const productIds = reviewsData.map(review => review.product_id);
+      
+      // Fetch product details separately
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select(`
+          id,
+          name,
+          image_url,
+          vendor_id
+        `)
+        .in('id', productIds);
+        
+      if (productsError) throw productsError;
+      
+      // Create a map of products for quick lookup
+      const productsMap = new Map();
+      productsData?.forEach(product => {
+        productsMap.set(product.id, product);
+      });
+      
+      // Get vendor IDs from products
+      const vendorIds = productsData?.map(product => product.vendor_id).filter(Boolean) || [];
+      
+      // Fetch vendor details separately
+      const { data: vendorsData, error: vendorsError } = await supabase
+        .from('vendors')
+        .select('id, business_name')
+        .in('id', vendorIds);
+        
+      if (vendorsError) throw vendorsError;
+      
+      // Create a map of vendors for quick lookup
+      const vendorsMap = new Map();
+      vendorsData?.forEach(vendor => {
+        vendorsMap.set(vendor.id, vendor);
+      });
+      
+      // Combine all data
+      const processedReviews = reviewsData.map(review => {
+        const product = productsMap.get(review.product_id);
+        const vendor = product ? vendorsMap.get(product.vendor_id) : null;
+        
+        return {
+          ...review,
+          product: {
+            name: product?.name || 'Unknown Product',
+            image_url: product?.image_url,
+            vendor: vendor ? {
+              id: vendor.id,
+              business_name: vendor.business_name
+            } : {
+              id: '',
+              business_name: 'Unknown Vendor'
+            }
+          }
+        };
+      });
+        
+      setReviews(processedReviews);
     } catch (error: any) {
       console.error('Error fetching reviews:', error);
       setError(error.message);

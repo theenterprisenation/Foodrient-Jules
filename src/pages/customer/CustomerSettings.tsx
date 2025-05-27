@@ -13,7 +13,8 @@ import {
   Shield,
   Lock,
   CreditCard,
-  Bell
+  Bell,
+  Plus
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -69,7 +70,7 @@ const CustomerSettings = () => {
     try {
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) return;
       
       // Fetch profile
       const { data: profileData, error: profileError } = await supabase
@@ -91,7 +92,7 @@ const CustomerSettings = () => {
       // In a real app, we would fetch notification settings and payment methods here
     } catch (error: any) {
       console.error('Error fetching profile:', error);
-      setError(error.message);
+      setError('Failed to load profile data');
     } finally {
       setIsLoading(false);
     }
@@ -187,7 +188,7 @@ const CustomerSettings = () => {
       }, 3000);
     } catch (error: any) {
       console.error('Error updating notification preferences:', error);
-      setError(error.message);
+      setError('Failed to update notification preferences');
     } finally {
       setIsSaving(false);
     }

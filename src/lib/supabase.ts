@@ -158,7 +158,7 @@ export const clearAuthState = async (): Promise<void> => {
   }
 };
 
-// New: Session validation helper
+// New: Session validation helper here
 export const validateCurrentSession = async (): Promise<boolean> => {
   const session = await restoreSession();
   return !!session && new Date(session.expires_at * 1000) > new Date();

@@ -80,7 +80,7 @@ const AuthAwareRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
   const location = useLocation();
 
   if (status === 'authenticated' || user) {
-    // If logged in, redirect to appropriate dashboard based on role
+    // If logged in, redirect to appropriate dashboard based on roles
     const redirectPath = getDashboardPath(user?.role);
     return <Navigate to={redirectPath} replace />;
   }

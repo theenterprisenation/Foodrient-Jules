@@ -7,7 +7,7 @@ import { useLogMountUnmount } from '../../utils/debugMounts';
 import { useSafeLoaderTimeout } from '../../hooks/useSafeLoaderTimeout';
 import { Loader2 } from 'lucide-react';
 
-// Dashboard Pages
+// Dashboard Pages.
 import CustomerOverview from '../customer/CustomerOverview';
 import CustomerOrders from '../customer/CustomerOrders';
 import CustomerAddresses from '../customer/CustomerAddresses';
@@ -64,7 +64,7 @@ const CustomerDashboard = () => {
     );
   }
 
-  // If no user and not loading, redirect to auth
+  // If no user and not loading, redirect to auth.
   if (!user && !safeLoading) {
     return <Navigate to="/auth" replace />;
   }
@@ -73,9 +73,12 @@ const CustomerDashboard = () => {
     <ErrorBoundary FallbackComponent={ErrorFallback}>
       <DashboardLayout>
         <Routes>
-          <Route path="dashboard" element={<CustomerOverview />} />
+          <Route path="dashboard" element={<CustomerOverview userId={user?.id} />} />
           <Route path="orders" element={<CustomerOrders />} />
-          <Route path="addresses" element={<CustomerAddresses />} />
+          <Route 
+            path="addresses" 
+            element={<CustomerAddresses userId={user?.id || ''} />} 
+          />
           <Route path="favorites" element={<CustomerFavorites />} />
           <Route path="reviews" element={<CustomerReviews />} />
           <Route path="messages" element={<CustomerMessages />} />

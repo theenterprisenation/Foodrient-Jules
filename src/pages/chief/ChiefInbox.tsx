@@ -2,13 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   MessageSquare, 
   Users, 
-  User, 
   Send, 
   Search, 
   Plus, 
   CheckCircle, 
   AlertTriangle,
-  Bell
+  Bell,
+  Shield,
+  Trash2
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { format } from 'date-fns';
@@ -22,8 +23,8 @@ interface Conversation {
   participants: {
     id: string;
     user_id: string;
-    // role: 'owner' | 'admin' | 'member';
-     role: 'owner' | 'admin' | 'chief' | 'coordinator' | 'manager' | 'vendor' | 'customer';
+  role: 'owner' | 'admin' | 'member';
+    // role: 'owner' | 'admin' | 'chief' | 'coordinator' | 'manager' | 'vendor' | 'customer';
     user: {
       full_name: string;
       email: string;
@@ -47,6 +48,7 @@ interface Message {
   metadata?: any;
   sender?: {
     full_name: string;
+    role?: string;
   };
 }
 
@@ -54,9 +56,10 @@ interface UserProfile {
   id: string;
   full_name: string;
   email: string;
+  role?: string;
 }
 
-const VendorMessaging = () => {
+const ChiefInbox = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [users, setUsers] = useState<UserProfile[]>([]);
@@ -72,6 +75,7 @@ const VendorMessaging = () => {
     participants: [] as string[]
   });
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isAdminView, setIsAdminView] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -93,7 +97,6 @@ const VendorMessaging = () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Step 1: Fetch basic conversation data
       const { data: conversationsData, error: conversationsError } = await supabase
         .from('conversations')
         .select('*')
@@ -102,26 +105,22 @@ const VendorMessaging = () => {
       if (conversationsError) throw conversationsError;
       if (!conversationsData) return;
 
-      // Step 2: Fetch participants for all conversations
       const { data: participantsData, error: participantsError } = await supabase
         .from('conversation_participants')
         .select('*');
 
       if (participantsError) throw participantsError;
 
-      // Step 3: Fetch user profiles
       const participantUserIds = participantsData?.map(p => p.user_id) || [];
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, full_name, email')
+        .select('id, full_name, email, role')
         .in('id', participantUserIds);
 
       if (profilesError) throw profilesError;
 
-      // Create a map of user profiles for quick lookup
       const profilesMap = new Map(profilesData?.map(profile => [profile.id, profile]));
 
-      // Step 4: Combine the data
       const enrichedConversations = conversationsData.map(conversation => {
         const conversationParticipants = participantsData?.filter(p => p.conversation_id === conversation.id) || [];
         
@@ -131,7 +130,8 @@ const VendorMessaging = () => {
             ...participant,
             user: {
               full_name: userProfile?.full_name || 'Unknown',
-              email: userProfile?.email || 'N/A'
+              email: userProfile?.email || 'N/A',
+              role: userProfile?.role || 'member'
             }
           };
         });
@@ -142,7 +142,6 @@ const VendorMessaging = () => {
         };
       });
 
-      // Step 5: Get last message for each conversation
       const conversationsWithLastMessage = await Promise.all(
         enrichedConversations.map(async conversation => {
           const { data: messagesData, error: messagesError } = await supabase
@@ -157,7 +156,6 @@ const VendorMessaging = () => {
           const lastMessage = messagesData?.[0];
           if (!lastMessage) return conversation;
 
-          // Get sender info for last message
           const senderProfile = profilesMap.get(lastMessage.sender_id);
           return {
             ...conversation,
@@ -183,7 +181,6 @@ const VendorMessaging = () => {
 
   const fetchMessages = async (conversationId: string) => {
     try {
-      // First get messages with sender_ids
       const { data: messagesData, error: messagesError } = await supabase
         .from('messages')
         .select('*')
@@ -193,23 +190,21 @@ const VendorMessaging = () => {
       if (messagesError) throw messagesError;
       if (!messagesData) return;
 
-      // Then get sender profiles
       const senderIds = messagesData.map(m => m.sender_id);
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, full_name')
+        .select('id, full_name, role')
         .in('id', senderIds);
 
       if (profilesError) throw profilesError;
 
-      // Create a map of sender profiles
       const profilesMap = new Map(profilesData?.map(profile => [profile.id, profile]));
 
-      // Combine the data
       const enrichedMessages = messagesData.map(message => ({
         ...message,
         sender: {
-          full_name: profilesMap.get(message.sender_id)?.full_name || 'Unknown'
+          full_name: profilesMap.get(message.sender_id)?.full_name || 'Unknown',
+          role: profilesMap.get(message.sender_id)?.role || 'member'
         }
       }));
 
@@ -224,7 +219,7 @@ const VendorMessaging = () => {
     try {
       const { data: profilesData, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, full_name, email')
+        .select('id, full_name, email, role')
         .order('full_name');
 
       if (profilesError) throw profilesError;
@@ -252,7 +247,6 @@ const VendorMessaging = () => {
         }]);
       if (error) throw error;
 
-      // Optimistically add message to UI
       setMessages([...messages, {
         id: Date.now().toString(),
         content: newMessage,
@@ -260,11 +254,12 @@ const VendorMessaging = () => {
         created_at: new Date().toISOString(),
         type: 'text',
         sender: {
-          full_name: 'You'
+          full_name: 'You (Chief)',
+          role: 'chief'
         }
       }]);
       setNewMessage('');
-      fetchConversations(); // Refresh conversations to update last message
+      fetchConversations();
     } catch (error: any) {
       console.error('Error sending message:', error);
       setError(error.message);
@@ -281,7 +276,6 @@ const VendorMessaging = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Create conversation
       const { data: conversation, error: conversationError } = await supabase
         .from('conversations')
         .insert([{
@@ -292,7 +286,6 @@ const VendorMessaging = () => {
         .single();
       if (conversationError) throw conversationError;
 
-      // Add participants
       const participants = [
         {
           conversation_id: conversation.id,
@@ -311,13 +304,12 @@ const VendorMessaging = () => {
         .insert(participants);
       if (participantsError) throw participantsError;
 
-      // Add initial system message
       const { error: messageError } = await supabase
         .from('messages')
         .insert([{
           conversation_id: conversation.id,
           sender_id: user.id,
-          content: `Conversation "${newConversationData.title}" created`,
+          content: `Conversation "${newConversationData.title}" created by Chief`,
           type: 'system'
         }]);
       if (messageError) throw messageError;
@@ -331,6 +323,43 @@ const VendorMessaging = () => {
       }, 3000);
     } catch (error: any) {
       console.error('Error creating conversation:', error);
+      setError(error.message);
+    }
+  };
+
+  const handleDeleteConversation = async (conversationId: string) => {
+    if (!window.confirm('Are you sure you want to delete this conversation? This action cannot be undone.')) return;
+    
+    try {
+      const { error: messagesError } = await supabase
+        .from('messages')
+        .delete()
+        .eq('conversation_id', conversationId);
+      if (messagesError) throw messagesError;
+
+      const { error: participantsError } = await supabase
+        .from('conversation_participants')
+        .delete()
+        .eq('conversation_id', conversationId);
+      if (participantsError) throw participantsError;
+
+      const { error: conversationError } = await supabase
+        .from('conversations')
+        .delete()
+        .eq('id', conversationId);
+      if (conversationError) throw conversationError;
+
+      setSuccessMessage('Conversation deleted successfully');
+      if (selectedConversation?.id === conversationId) {
+        setSelectedConversation(null);
+      }
+      fetchConversations();
+
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 3000);
+    } catch (error: any) {
+      console.error('Error deleting conversation:', error);
       setError(error.message);
     }
   };
@@ -369,8 +398,17 @@ const VendorMessaging = () => {
       {/* Sidebar */}
       <div className="w-1/4 border-r border-gray-200 bg-white flex flex-col">
         <div className="p-4 border-b border-gray-200">
-          <h2 className="text-xl font-semibold">Messages</h2>
-          <div className="mt-4 relative">
+          <div className="flex justify-between items-center mb-2">
+            <h2 className="text-xl font-semibold">Chief Inbox</h2>
+            <button 
+              onClick={() => setIsAdminView(!isAdminView)}
+              className="p-1 rounded-full hover:bg-gray-100"
+              title={isAdminView ? 'Switch to regular view' : 'Switch to admin view'}
+            >
+              <Shield size={18} className={isAdminView ? 'text-blue-600' : 'text-gray-500'} />
+            </button>
+          </div>
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               type="text"
@@ -419,6 +457,20 @@ const VendorMessaging = () => {
                     </span> {conversation.last_message.content}
                   </p>
                 )}
+                {isAdminView && (
+                  <div className="mt-2 flex justify-end">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteConversation(conversation.id);
+                      }}
+                      className="text-red-500 hover:text-red-700 p-1"
+                      title="Delete conversation"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                )}
               </div>
             ))
           )}
@@ -438,6 +490,14 @@ const VendorMessaging = () => {
                 <p className="text-sm text-gray-500">
                   {selectedConversation.participants.length} participant
                   {selectedConversation.participants.length !== 1 ? 's' : ''}
+                  {isAdminView && (
+                    <>
+                      {' • '}
+                      <span className="text-xs bg-gray-100 px-2 py-1 rounded">
+                        Conversation ID: {selectedConversation.id}
+                      </span>
+                    </>
+                  )}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -447,6 +507,15 @@ const VendorMessaging = () => {
                 <button className="p-2 rounded-full hover:bg-gray-100">
                   <Bell size={20} />
                 </button>
+                {isAdminView && (
+                  <button
+                    onClick={() => handleDeleteConversation(selectedConversation.id)}
+                    className="p-2 rounded-full hover:bg-red-100 text-red-500"
+                    title="Delete conversation"
+                  >
+                    <Trash2 size={20} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -460,19 +529,27 @@ const VendorMessaging = () => {
                 messages.map(message => (
                   <div
                     key={message.id}
-                    className={`mb-4 ${message.sender?.full_name === 'You' ? 'text-right' : ''}`}
+                    className={`mb-4 ${message.sender?.full_name === 'You (Chief)' ? 'text-right' : ''}`}
                   >
                     <div
-                      className={`inline-block p-3 rounded-lg max-w-xs lg:max-w-md ${message.sender?.full_name === 'You' ? 'bg-blue-500 text-white' : 'bg-white border border-gray-200'}`}
+                      className={`inline-block p-3 rounded-lg max-w-xs lg:max-w-md ${message.sender?.full_name === 'You (Chief)' ? 'bg-blue-500 text-white' : message.sender?.role === 'admin' ? 'bg-purple-100 border border-purple-200' : 'bg-white border border-gray-200'}`}
                     >
-                      {message.sender?.full_name !== 'You' && (
+                      {message.sender?.full_name !== 'You (Chief)' && (
                         <p className="font-medium text-sm mb-1">
                           {message.sender?.full_name}
+                          {message.sender?.role === 'admin' && (
+                            <span className="ml-2 text-xs bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded">
+                              Admin
+                            </span>
+                          )}
                         </p>
                       )}
                       <p>{message.content}</p>
-                      <p className={`text-xs mt-1 ${message.sender?.full_name === 'You' ? 'text-blue-100' : 'text-gray-500'}`}>
+                      <p className={`text-xs mt-1 ${message.sender?.full_name === 'You (Chief)' ? 'text-blue-100' : 'text-gray-500'}`}>
                         {formatMessageDate(message.created_at)}
+                        {isAdminView && (
+                          <span className="ml-2">• Message ID: {message.id}</span>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -585,7 +662,7 @@ const VendorMessaging = () => {
                 >
                   {users.map(user => (
                     <option key={user.id} value={user.id}>
-                      {user.full_name} ({user.email})
+                      {user.full_name} ({user.email}) {user.role === 'admin' && '(Admin)'}
                     </option>
                   ))}
                 </select>
@@ -615,4 +692,4 @@ const VendorMessaging = () => {
   );
 };
 
-export default VendorMessaging;
+export default ChiefInbox;

@@ -25,6 +25,7 @@ interface PepsTransaction {
   points: number;
   source: string;
   reference_id?: string;
+  user_id: string;
 }
 
 interface UserProfile {
@@ -48,11 +49,6 @@ const ChiefPeps = () => {
     spentPeps: 0,
     expiredPeps: 0
   });
-  const [userProfile, setUserProfile] = useState<{
-    id: string;
-    full_name: string | null;
-    points_balance: number;
-  } | null>(null);
   const [isTransferring, setIsTransferring] = useState(false);
   const [transferData, setTransferData] = useState({
     recipientEmail: '',
@@ -61,6 +57,13 @@ const ChiefPeps = () => {
   });
   const [isSending, setIsSending] = useState(false);
   const [users, setUsers] = useState<UserProfile[]>([]);
+
+  // Default admin profile with high balance
+  const adminProfile = {
+    id: 'admin-account',
+    full_name: 'Admin User',
+   points_balance: 1000000
+  }; 
 
   const fetchData = useCallback(() => {
     const fetchAll = async () => {
@@ -82,28 +85,17 @@ const ChiefPeps = () => {
     setError(null);
     
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select('id, full_name, points_balance')
-        .eq('id', user.id)
-        .single();
-        
-      if (profileError) throw profileError;
-      setUserProfile(profile);
-      
+      // Fetch all transactions without user filter
       const { data, error } = await supabase
         .from('affiliate_points')
         .select('*')
-        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
         
       if (error) throw error;
       
       setTransactions(data || []);
       
+      // Calculate metrics from all transactions
       const earned = data?.filter(t => t.transaction_type === 'earned')
         .reduce((sum, t) => sum + t.points, 0) || 0;
       const spent = data?.filter(t => t.transaction_type === 'spent')
@@ -112,14 +104,14 @@ const ChiefPeps = () => {
         .reduce((sum, t) => sum + Math.abs(t.points), 0) || 0;
       
       setMetrics({
-        totalPeps: profile?.points_balance || 0,
+        totalPeps: adminProfile.points_balance,
         earnedPeps: earned,
         spentPeps: spent,
         expiredPeps: expired
       });
     } catch (error: any) {
       console.error('Error fetching PEPS data:', error);
-      setError(error.message);
+      setError('Failed to load data. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -133,11 +125,7 @@ const ChiefPeps = () => {
         
       if (error) throw error;
       
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      const usersWithEmails = data?.filter(profile => 
-        user ? profile.id !== user.id : true
-      ).map(profile => ({
+      const usersWithEmails = data?.map(profile => ({
         id: profile.id,
         full_name: profile.full_name || 'Unknown User',
         email: profile.email || 'N/A',
@@ -147,12 +135,13 @@ const ChiefPeps = () => {
       setUsers(usersWithEmails);
     } catch (error: any) {
       console.error('Error fetching users:', error);
+      setError('Failed to load user data.');
     }
   };
 
   const handleExportTransactions = () => {
     try {
-      const headers = ['Date', 'Type', 'Points', 'Source', 'Reference'];
+      const headers = ['Date', 'Type', 'Points', 'Source', 'Reference', 'User ID'];
       const csvContent = [
         headers.join(','),
         ...transactions.map(transaction => [
@@ -160,7 +149,8 @@ const ChiefPeps = () => {
           transaction.transaction_type,
           transaction.points,
           transaction.source,
-          transaction.reference_id || ''
+          transaction.reference_id || '',
+          transaction.user_id
         ].join(','))
       ].join('\n');
       
@@ -187,8 +177,6 @@ const ChiefPeps = () => {
   const handleTransferPeps = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!userProfile) return;
-    
     setIsSending(true);
     setError(null);
     
@@ -202,17 +190,11 @@ const ChiefPeps = () => {
         throw new Error('Please enter a valid amount greater than 0.');
       }
       
-      if (transferData.amount > userProfile.points_balance) {
+      if (transferData.amount > adminProfile.points_balance) {
         throw new Error('Insufficient PEPS balance for this transfer.');
       }
       
-      const { error: deductError } = await supabase
-        .from('profiles')
-        .update({ points_balance: userProfile.points_balance - transferData.amount })
-        .eq('id', userProfile.id);
-        
-      if (deductError) throw deductError;
-      
+      // Update recipient's balance
       const { error: addError } = await supabase
         .from('profiles')
         .update({ points_balance: recipient.points_balance + transferData.amount })
@@ -220,18 +202,7 @@ const ChiefPeps = () => {
         
       if (addError) throw addError;
       
-      const { error: senderTransactionError } = await supabase
-        .from('affiliate_points')
-        .insert([{
-          user_id: userProfile.id,
-          points: -transferData.amount,
-          transaction_type: 'spent',
-          source: 'transfer_out',
-          reference_id: recipient.id
-        }]);
-        
-      if (senderTransactionError) throw senderTransactionError;
-      
+      // Create transaction record for recipient
       const { error: recipientTransactionError } = await supabase
         .from('affiliate_points')
         .insert([{
@@ -239,7 +210,7 @@ const ChiefPeps = () => {
           points: transferData.amount,
           transaction_type: 'earned',
           source: 'transfer_in',
-          reference_id: userProfile.id
+          reference_id: adminProfile.id
         }]);
         
       if (recipientTransactionError) throw recipientTransactionError;
@@ -268,7 +239,8 @@ const ChiefPeps = () => {
   const filteredTransactions = transactions.filter(transaction => {
     const matchesSearch = 
       transaction.source.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (transaction.reference_id && transaction.reference_id.toLowerCase().includes(searchTerm.toLowerCase()));
+      (transaction.reference_id && transaction.reference_id.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      transaction.user_id.toLowerCase().includes(searchTerm.toLowerCase());
       
     const matchesType = selectedTransactionType === 'all' || transaction.transaction_type === selectedTransactionType;
     
@@ -287,18 +259,16 @@ const ChiefPeps = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="p-4 bg-red-50 rounded-lg text-red-800">
-        <p>Error: {error}</p>
-      </div>
-    );
-  }
-
   return (
     <div className="container mx-auto px-4 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold mb-4">PEPS Management</h1>
+        <h1 className="text-3xl font-bold mb-4">PEPS Management Dashboard</h1>
+        {error && (
+          <div className="mb-4 p-4 bg-red-50 rounded-lg flex items-center text-red-800">
+            <AlertTriangle className="h-5 w-5 mr-2" />
+            <p>{error}</p>
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="flex items-center justify-between">
@@ -397,13 +367,6 @@ const ChiefPeps = () => {
           </div>
         )}
 
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 rounded-lg flex items-center text-red-800">
-            <AlertTriangle className="h-5 w-5 mr-2" />
-            <p>{error}</p>
-          </div>
-        )}
-
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -419,6 +382,9 @@ const ChiefPeps = () => {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Reference
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  User ID
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Points
@@ -445,6 +411,9 @@ const ChiefPeps = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {transaction.reference_id || '-'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {transaction.user_id}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right">
                     <span className={transaction.transaction_type === 'earned' ? 'text-green-600' : 'text-red-600'}>
@@ -517,14 +486,14 @@ const ChiefPeps = () => {
                 <input
                   type="number"
                   min="1"
-                  max={userProfile?.points_balance || 0}
+                  max={adminProfile.points_balance}
                   value={transferData.amount}
                   onChange={(e) => setTransferData({ ...transferData, amount: parseInt(e.target.value) })}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
                   required
                 />
                 <p className="mt-1 text-xs text-gray-500">
-                  Available balance: {userProfile?.points_balance || 0} PEPS
+                  Available balance: {adminProfile.points_balance} PEPS
                 </p>
               </div>
               
@@ -549,7 +518,7 @@ const ChiefPeps = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSending || !transferData.recipientEmail || transferData.amount <= 0 || transferData.amount > (userProfile?.points_balance || 0)}
+                  disabled={isSending || !transferData.recipientEmail || transferData.amount <= 0 || transferData.amount > adminProfile.points_balance}
                   className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
                 >
                   {isSending ? (

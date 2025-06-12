@@ -20,6 +20,8 @@ export const handleAuthError = (error: any = {}): string => {
       return 'Too many attempts. Please try again later.';
     case 'Login request timed out. Please try again.':
       return 'Login request timed out. Please try again.';
+    case 'Email link is invalid or has expired':
+      return 'The verification link is invalid or has expired. Please request a new verification email.';
     case 'Failed to fetch':
       return 'Network error. Please check your internet connection and try again.';
     case 'NetworkError when attempting to fetch resource':

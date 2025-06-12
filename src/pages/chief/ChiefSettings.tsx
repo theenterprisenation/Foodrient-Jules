@@ -45,29 +45,56 @@ const ChiefSettings = () => {
     setError(null);
     
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      // Get the current user first
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
       
-      // Fetch profile
+      if (authError) throw authError;
+      if (!user) throw new Error('No authenticated user found');
+      
+      // Fetch profile for the current user
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('id, full_name, phone_number, address')
+        .select('id, full_name, email, phone_number, address')
         .eq('id', user.id)
         .single();
         
-      if (profileError) throw profileError;
-      
-      setProfile({
-        id: user.id,
-        full_name: profileData?.full_name || '',
-        email: user.email || '',
-        phone_number: profileData?.phone_number || '',
-        address: profileData?.address || ''
-      });
+      if (profileError) {
+        // If no profile exists, create a default one
+        if (profileError.code === 'PGRST116') {
+          const { data: newProfile, error: insertError } = await supabase
+            .from('profiles')
+            .insert({
+              id: user.id,
+              email: user.email,
+              full_name: user.email?.split('@')[0] || 'User'
+            })
+            .select()
+            .single();
+            
+          if (insertError) throw insertError;
+          
+          setProfile({
+            id: newProfile.id,
+            full_name: newProfile.full_name,
+            email: newProfile.email,
+            phone_number: newProfile.phone_number || '',
+            address: newProfile.address || ''
+          });
+        } else {
+          throw profileError;
+        }
+      } else {
+        setProfile({
+          id: profileData.id,
+          full_name: profileData.full_name,
+          email: profileData.email,
+          phone_number: profileData.phone_number || '',
+          address: profileData.address || ''
+        });
+      }
     } catch (error: any) {
       console.error('Error fetching profile:', error);
-      setError(error.message);
+      setError(error.message || 'Failed to load profile');
     } finally {
       setIsLoading(false);
     }
@@ -79,6 +106,8 @@ const ChiefSettings = () => {
     setError(null);
     
     try {
+      if (!profile.id) throw new Error('No profile ID available');
+      
       const { error } = await supabase
         .from('profiles')
         .update({
@@ -147,6 +176,14 @@ const ChiefSettings = () => {
       setIsSaving(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="p-6 flex justify-center items-center h-screen">
+        <RefreshCw className="h-8 w-8 text-yellow-500 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">

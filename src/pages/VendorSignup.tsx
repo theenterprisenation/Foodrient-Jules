@@ -1,8 +1,25 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Store, Upload, AlertCircle } from 'lucide-react';
+import { Store, Upload, AlertCircle, Clock } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { supabase } from '../lib/supabase';
+import { 
+  Settings, 
+  Save, 
+  CheckCircle, 
+  AlertTriangle, 
+  RefreshCw, 
+  User, 
+  Mail, 
+  Phone, 
+  MapPin, 
+  Key, 
+  Shield,
+  Lock,
+  CreditCard,
+  Bell,
+  Plus
+} from 'lucide-react';
 
 const VendorSignup = () => {
   const navigate = useNavigate();
@@ -10,6 +27,10 @@ const VendorSignup = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [emailSent, setEmailSent] = useState(false);
+  const [resendButtonDisabled, setResendButtonDisabled] = useState(true);
+  const [resendCountdown, setResendCountdown] = useState(60);
+  const [resendError, setResendError] = useState<string | null>(null);
   
   const [formData, setFormData] = useState({
     firstName: '',
@@ -43,9 +64,43 @@ const VendorSignup = () => {
     }
   };
 
+  const handleResendVerificationEmail = async () => {
+    setResendError(null);
+    setResendButtonDisabled(true);
+    setResendCountdown(60);
+    
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: formData.email,
+      });
+      
+      if (error) throw error;
+      
+      setSuccessMessage('Verification email resent successfully! Please check your inbox.');
+      
+      // Start countdown timer
+      const countdownInterval = setInterval(() => {
+        setResendCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(countdownInterval);
+            setResendButtonDisabled(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      
+    } catch (error: any) {
+      setResendError(error.message || 'Failed to resend verification email. Please try again.');
+      setResendButtonDisabled(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setResendError(null);
     setIsLoading(true);
 
     try {
@@ -62,10 +117,22 @@ const VendorSignup = () => {
       // Sign up user with vendor role
       await signUp(formData.email, formData.password, 'vendor');
 
+      // Set email sent state to true
+      setEmailSent(true);
+      
+      // Start countdown timer for resend button
+      const countdownInterval = setInterval(() => {
+        setResendCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(countdownInterval);
+            setResendButtonDisabled(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
       setSuccessMessage('Account created successfully! Please check your email to verify your account.');
-      setTimeout(() => {
-        navigate('/auth');
-      }, 3000);
     } catch (error: any) {
       let errorMessage = 'An unexpected error occurred. Please try again.';
       
@@ -73,6 +140,9 @@ const VendorSignup = () => {
         errorMessage = 'Password must be at least 6 characters long.';
       } else if (error.message.includes('already registered')) {
         errorMessage = 'This email is already registered. Please sign in or use a different email.';
+      }
+      else if (error.message.includes('Email link is invalid or has expired')) {
+        errorMessage = 'The verification link is invalid or has expired. Please request a new verification email.';
       }
 
       setError(errorMessage);
@@ -322,8 +392,43 @@ const VendorSignup = () => {
                     <p className="text-sm font-medium text-green-800">{successMessage}</p>
                   </div>
                 </div>
+                {emailSent && (
+                  <div className="mt-3 w-full">
+                    <button
+                      type="button"
+                      onClick={handleResendVerificationEmail}
+                      disabled={resendButtonDisabled}
+                      className={`mt-2 flex items-center text-sm ${
+                        resendButtonDisabled 
+                          ? 'text-gray-400 cursor-not-allowed' 
+                          : 'text-yellow-600 hover:text-yellow-700'
+                      }`}
+                    >
+                      {resendButtonDisabled ? (
+                        <>
+                          <Clock className="h-4 w-4 mr-1" />
+                          Resend verification email ({resendCountdown}s)
+                        </>
+                      ) : (
+                        'Resend verification email'
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
+          
+          {/* Resend Error Message */}
+          {resendError && (
+            <div className="rounded-md bg-red-50 p-4">
+              <div className="flex">
+                <AlertCircle className="h-5 w-5 text-red-400" />
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">{resendError}</h3>
+                </div>
+              </div>
+            </div>
+          )}
 
             {/* Submit Button */}
             <div>
@@ -334,6 +439,16 @@ const VendorSignup = () => {
               >
                 {isLoading ? 'Creating Account...' : 'Create Vendor Account'}
               </button>
+            </div>
+            
+            {/* Login Link */}
+            <div className="mt-4 text-center">
+              <p className="text-sm text-gray-600">
+                Already have an account?{' '}
+                <Link to="/auth" className="font-medium text-yellow-600 hover:text-yellow-500">
+                  Sign in
+                </Link>
+              </p>
             </div>
           </form>
         </div>

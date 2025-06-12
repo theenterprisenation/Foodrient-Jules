@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Star, 
   Search, 
@@ -28,10 +28,7 @@ import {
   Legend, 
   ResponsiveContainer,
   LineChart,
-  Line,
-  PieChart,
-  Pie,
-  Cell
+  Line
 } from 'recharts';
 
 interface Review {
@@ -79,42 +76,65 @@ const VendorReviews = () => {
       { rating: 2, count: 0 },
       { rating: 1, count: 0 }
     ],
-    vendorRatings: [],
     ratingTrend: []
   });
 
   useEffect(() => {
-    fetchVendorId();
+    const initializeDashboard = async () => {
+      try {
+        // Get current session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError || !session) {
+          throw new Error();
+        }
+
+        // Get vendor profile
+        const { data: vendorProfile, error: profileError } = await supabase
+          .from('profiles')
+          .select('id, role')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profileError || !vendorProfile) throw profileError || new Error('Profile not found');
+        if (vendorProfile.role !== 'vendor') throw new Error('User is not a vendor');
+
+        // Get vendor record
+        const { data: vendorData, error: vendorError } = await supabase
+          .from('vendors')
+          .select('id')
+          .eq('user_id', session.user.id)
+          .single();
+
+        if (vendorError || !vendorData) throw vendorError || new Error('Vendor not found');
+
+        setVendorId(vendorData.id);
+      } catch (error: any) {
+        console.error('Initialization error:', error);
+        setError(error.message);
+        setIsLoading(false);
+      }
+    };
+
+    initializeDashboard();
   }, []);
 
   useEffect(() => {
     if (vendorId) {
-      fetchReviews();
-      fetchProducts();
+      const fetchData = async () => {
+        try {
+          await Promise.all([fetchProducts(), fetchReviews()]);
+        } catch (error: any) {
+          console.error('Data fetching error:', error);
+          setError(error.message);
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      fetchData();
     }
   }, [vendorId]);
-
-  const fetchVendorId = async () => {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      // Fetch vendor profile
-      const { data: vendorData, error: vendorError } = await supabase
-        .from('vendors')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-        
-      if (vendorError) throw vendorError;
-      
-      setVendorId(vendorData.id);
-    } catch (error: any) {
-      console.error('Error fetching vendor ID:', error);
-      setError(error.message);
-    }
-  };
 
   const fetchProducts = async () => {
     try {
@@ -123,137 +143,144 @@ const VendorReviews = () => {
         .select('id, name')
         .eq('vendor_id', vendorId)
         .eq('status', 'active');
-        
+      
       if (error) throw error;
       
       setProducts(data || []);
     } catch (error: any) {
       console.error('Error fetching products:', error);
+      throw error;
     }
   };
 
   const fetchReviews = async () => {
-    setIsLoading(true);
-    setError(null);
-    
     try {
-      // First, get all products for this vendor
+      // First get product IDs for this vendor
       const { data: productsData, error: productsError } = await supabase
         .from('products')
         .select('id')
         .eq('vendor_id', vendorId);
-        
-      if (productsError) throw productsError;
       
+      if (productsError) throw productsError;
       if (!productsData || productsData.length === 0) {
         setReviews([]);
-        setIsLoading(false);
+        calculateMetrics([]);
         return;
       }
-      
+
       const productIds = productsData.map(p => p.id);
-      
-      // Then, fetch reviews for these products
+
+      // Then get reviews for these products
       const { data: reviewsData, error: reviewsError } = await supabase
         .from('product_reviews')
         .select(`
           *,
-          product:products(name, vendor_id)
+          product:products(name)
         `)
         .in('product_id', productIds)
         .order('created_at', { ascending: false });
-        
+      
       if (reviewsError) throw reviewsError;
+      if (!reviewsData || reviewsData.length === 0) {
+        setReviews([]);
+        calculateMetrics([]);
+        return;
+      }
+
+      // Get unique user IDs from reviews
+      const userIds = [...new Set(reviewsData.map(review => review.user_id))];
       
-      // Then, fetch user profiles separately
-      const userIds = reviewsData?.map(review => review.user_id) || [];
-      
+      // Get user profiles
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, full_name')
+        .select('id, full_name, email')
         .in('id', userIds);
-        
+      
       if (profilesError) throw profilesError;
-      
-      // Fetch user emails separately
-      const { data: users, error: usersError } = await supabase
-        .from('users')
-        .select('id, email')
-        .in('id', userIds);
-        
-      if (usersError) {
-        // If we can't get emails from auth table, just continue with profiles
-        console.warn('Could not fetch user emails:', usersError);
-      }
-      
-      // Create a map of user profiles
-      const profileMap = new Map();
+
+      // Create user map
+      const userMap = new Map();
       profiles?.forEach(profile => {
-        profileMap.set(profile.id, {
+        userMap.set(profile.id, {
           full_name: profile.full_name,
-          email: users?.find(u => u.id === profile.id)?.email || 'N/A'
+          email: profile.email || 'N/A'
         });
       });
-      
-      // Combine the data
-      const processedReviews = reviewsData?.map(review => ({
+
+      // Combine data
+      const processedReviews = reviewsData.map(review => ({
         ...review,
-        user: profileMap.get(review.user_id) || { full_name: 'Unknown User', email: 'N/A' }
+        product: {
+          name: review.product?.name || 'Unknown Product',
+          vendor_id: vendorId || ''
+        },
+        user: userMap.get(review.user_id) || { full_name: 'Unknown User', email: 'N/A' }
       }));
-      
-      setReviews(processedReviews || []);
-      
-      // Calculate metrics
-      if (processedReviews && processedReviews.length > 0) {
-        // Average rating
-        const totalRating = processedReviews.reduce((sum, review) => sum + review.rating, 0);
-        const averageRating = totalRating / processedReviews.length;
-        
-        // Response rate
-        const respondedReviews = processedReviews.filter(review => review.vendor_response !== null);
-        const responseRate = (respondedReviews.length / processedReviews.length) * 100;
-        
-        // Rating distribution
-        const distribution = [5, 4, 3, 2, 1].map(rating => ({
-          rating,
-          count: processedReviews.filter(review => review.rating === rating).length
-        }));
-        
-        // Rating trend (by month)
-        const reviewsByMonth = processedReviews.reduce((acc, review) => {
-          const month = format(new Date(review.created_at), 'MMM yyyy');
-          if (!acc[month]) {
-            acc[month] = {
-              month,
-              count: 0,
-              totalRating: 0
-            };
-          }
-          acc[month].count += 1;
-          acc[month].totalRating += review.rating;
-          return acc;
-        }, {});
-        
-        const trend = Object.values(reviewsByMonth).map((data: any) => ({
-          month: data.month,
-          rating: data.totalRating / data.count
-        }));
-        
-        setMetrics({
-          averageRating,
-          totalReviews: processedReviews.length,
-          responseRate,
-          ratingDistribution: distribution,
-          ratingTrend: trend,
-          vendorRatings: []
-        });
-      }
+
+      setReviews(processedReviews);
+      calculateMetrics(processedReviews);
     } catch (error: any) {
       console.error('Error fetching reviews:', error);
-      setError(error.message);
-    } finally {
-      setIsLoading(false);
+      throw error;
     }
+  };
+
+  const calculateMetrics = (reviews: Review[]) => {
+    if (reviews.length === 0) {
+      setMetrics({
+        averageRating: 0,
+        totalReviews: 0,
+        responseRate: 0,
+        ratingDistribution: [
+          { rating: 5, count: 0 },
+          { rating: 4, count: 0 },
+          { rating: 3, count: 0 },
+          { rating: 2, count: 0 },
+          { rating: 1, count: 0 }
+        ],
+        ratingTrend: []
+      });
+      return;
+    }
+
+    // Calculate metrics
+    const totalRating = reviews.reduce((sum, review) => sum + review.rating, 0);
+    const averageRating = totalRating / reviews.length;
+    
+    const respondedReviews = reviews.filter(review => review.vendor_response !== null);
+    const responseRate = (respondedReviews.length / reviews.length) * 100;
+    
+    const distribution = [5, 4, 3, 2, 1].map(rating => ({
+      rating,
+      count: reviews.filter(review => review.rating === rating).length
+    }));
+    
+    const reviewsByMonth = reviews.reduce((acc: Record<string, {month: string, count: number, totalRating: number}>, review) => {
+      const month = format(new Date(review.created_at), 'MMM yyyy');
+      if (!acc[month]) {
+        acc[month] = {
+          month,
+          count: 0,
+          totalRating: 0
+        };
+      }
+      acc[month].count += 1;
+      acc[month].totalRating += review.rating;
+      return acc;
+    }, {});
+    
+    const trend = Object.values(reviewsByMonth).map(data => ({
+      month: data.month,
+      rating: data.totalRating / data.count
+    }));
+    
+    setMetrics({
+      averageRating,
+      totalReviews: reviews.length,
+      responseRate,
+      ratingDistribution: distribution,
+      ratingTrend: trend
+    });
   };
 
   const handleSubmitResponse = async () => {
@@ -267,18 +294,15 @@ const VendorReviews = () => {
           response_at: new Date().toISOString()
         })
         .eq('id', selectedReview.id);
-        
+      
       if (error) throw error;
       
       setSuccessMessage('Response submitted successfully');
-      fetchReviews();
+      await fetchReviews();
       setIsResponding(false);
       setResponse('');
       
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        setSuccessMessage(null);
-      }, 3000);
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error: any) {
       console.error('Error submitting response:', error);
       setError(error.message);
@@ -312,11 +336,9 @@ const VendorReviews = () => {
     ));
   };
 
-  // Colors for charts
-  const COLORS = ['#F59E0B', '#10B981', '#3B82F6', '#EC4899', '#8B5CF6'];
-
   return (
     <div className="p-6">
+      {/* Header and Search */}
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Customer Reviews</h1>
         <div className="flex items-center space-x-4">
@@ -341,7 +363,7 @@ const VendorReviews = () => {
         </div>
       </div>
 
-      {/* Success Message */}
+      {/* Status Messages */}
       {successMessage && (
         <div className="mb-6 p-4 bg-green-50 rounded-lg flex items-center text-green-800">
           <CheckCircle className="h-5 w-5 mr-2" />
@@ -349,7 +371,6 @@ const VendorReviews = () => {
         </div>
       )}
 
-      {/* Error Message */}
       {error && (
         <div className="mb-6 p-4 bg-red-50 rounded-lg flex items-center text-red-800">
           <AlertTriangle className="h-5 w-5 mr-2" />
@@ -357,62 +378,30 @@ const VendorReviews = () => {
         </div>
       )}
 
-      {/* Review Metrics */}
+      {/* Metrics Cards */}
       <div className="grid grid-cols-1 gap-6 mb-8 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-full bg-yellow-100 mr-4">
-              <Star className="h-6 w-6 text-yellow-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Average Rating</p>
-              <p className="text-2xl font-semibold text-gray-900">{metrics.averageRating.toFixed(1)}/5.0</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-full bg-blue-100 mr-4">
-              <MessageSquare className="h-6 w-6 text-blue-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Total Reviews</p>
-              <p className="text-2xl font-semibold text-gray-900">{metrics.totalReviews}</p>
+        {[
+          { icon: Star, color: 'yellow', label: 'Average Rating', value: `${metrics.averageRating.toFixed(1)}/5.0` },
+          { icon: MessageSquare, color: 'blue', label: 'Total Reviews', value: metrics.totalReviews },
+          { icon: ThumbsUp, color: 'green', label: 'Response Rate', value: `${metrics.responseRate.toFixed(0)}%` },
+          { icon: TrendingUp, color: 'purple', label: '5-Star Reviews', value: metrics.ratingDistribution.find(d => d.rating === 5)?.count || 0 }
+        ].map((metric, index) => (
+          <div key={index} className="bg-white rounded-lg shadow-sm p-6">
+            <div className="flex items-center">
+              <div className={`p-3 rounded-full bg-${metric.color}-100 mr-4`}>
+                <metric.icon className={`h-6 w-6 text-${metric.color}-600`} />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-500">{metric.label}</p>
+                <p className="text-2xl font-semibold text-gray-900">{metric.value}</p>
+              </div>
             </div>
           </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-full bg-green-100 mr-4">
-              <ThumbsUp className="h-6 w-6 text-green-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">Response Rate</p>
-              <p className="text-2xl font-semibold text-gray-900">{metrics.responseRate.toFixed(0)}%</p>
-            </div>
-          </div>
-        </div>
-        
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <div className="flex items-center">
-            <div className="p-3 rounded-full bg-purple-100 mr-4">
-              <TrendingUp className="h-6 w-6 text-purple-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-500">5-Star Reviews</p>
-              <p className="text-2xl font-semibold text-gray-900">
-                {metrics.ratingDistribution.find(d => d.rating === 5)?.count || 0}
-              </p>
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-        {/* Rating Distribution */}
         <div className="bg-white rounded-lg shadow-sm p-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Rating Distribution</h2>
           <div className="h-64">
@@ -433,7 +422,6 @@ const VendorReviews = () => {
           </div>
         </div>
         
-        {/* Rating Trend */}
         <div className="bg-white rounded-lg shadow-sm p-6">
           <h2 className="text-lg font-medium text-gray-900 mb-4">Rating Trend</h2>
           <div className="h-64">
@@ -510,7 +498,7 @@ const VendorReviews = () => {
           </div>
         ) : filteredReviews.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
-            No reviews found
+            {reviews.length === 0 ? 'No reviews found for your products' : 'No reviews match your filters'}
           </div>
         ) : (
           <div className="divide-y divide-gray-200">

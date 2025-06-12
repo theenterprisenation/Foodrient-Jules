@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { navigate } from '../utils/navigation';
+import { useMinimalAuth } from '../hooks/useMinimalAuth';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -36,6 +37,7 @@ interface DashboardLayoutProps {
 export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) => {
   const location = useLocation();
   const { user, signOut } = useAuthStore();
+  const { safeLoading } = useMinimalAuth();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   
@@ -47,13 +49,8 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
       setIsSidebarOpen(!mobile);
     };
     
-    // Initial check
     checkScreenSize();
-    
-    // Add event listener for window resize
     window.addEventListener('resize', checkScreenSize);
-    
-    // Cleanup
     return () => window.removeEventListener('resize', checkScreenSize);
   }, []);
 
@@ -62,9 +59,34 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
     navigate('/auth', { replace: true });
   };
 
-  // Get the base path based on user role
+  // Early return if auth is still loading
+  if (safeLoading) {
+    return null;
+  }
+
+  // Early return if no user after loading
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center p-6 max-w-md">
+          <h2 className="text-2xl font-bold text-gray-800 mb-4">Session Expired</h2>
+          <p className="text-gray-600 mb-6">
+            Your session has expired or you're not authenticated. Please sign in again.
+          </p>
+          <button
+            onClick={() => navigate('/auth')}
+            className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors"
+          >
+            Go to Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Get the base path based on user role (lowercase for consistency)
   const basePath = (() => {
-    if (!user) return '/';
+    const role = user.role?.toLowerCase() || '';
     const roleMap = {
       'customer': '/customer',
       'vendor': '/vendor',
@@ -72,63 +94,83 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
       'coordinator': '/coordinator',
       'chief': '/chief'
     };
-    return roleMap[user.role] || '/';
+    return roleMap[role] || '/';
   })();
 
-  // Define menu items based on user role
-  const menuItems = user?.role === 'chief' ? [
-    { icon: Home, label: 'Overview', path: `${basePath}/overview` },
-    { icon: Users, label: 'Managers & Coordinators', path: `${basePath}/managers` },
-    { icon: DollarSign, label: 'Payments', path: `${basePath}/payments` },
-    { icon: Package, label: 'Products & Deals', path: `${basePath}/products` },
-    { icon: Truck, label: 'Delivery Schedules', path: `${basePath}/delivery` },
-    { icon: Star, label: 'Reviews', path: `${basePath}/reviews` },
-    { icon: FileText, label: 'Blog Posts', path: `${basePath}/blog` },
-    { icon: Image, label: 'Adverts', path: `${basePath}/adverts` },
-    { icon: UserCheck, label: 'Vendor Assignment', path: `${basePath}/vendor-assignment` },
-    { icon: Store, label: 'Vendor Management', path: `${basePath}/vendor-management` },
-    { icon: Wallet, label: 'Peps Management', path: `${basePath}/peps` },
-    { icon: MessageSquare, label: 'Messaging', path: `${basePath}/messaging` },
-    { icon: PieChart, label: 'Analytics & Reports', path: `${basePath}/analytics` },
-    { icon: Settings, label: 'System Settings', path: `${basePath}/settings` },
-  ] : user?.role === 'coordinator' ? [
-    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
-    { icon: Users, label: 'Managers', path: `${basePath}/managers` },
-    { icon: DollarSign, label: 'Payments', path: `${basePath}/payments` },
-    { icon: Package, label: 'Products & Deals', path: `${basePath}/products` },
-    { icon: Truck, label: 'Delivery Schedules', path: `${basePath}/delivery` },
-    { icon: Star, label: 'Reviews', path: `${basePath}/reviews` },
-    { icon: Store, label: 'Vendors', path: `${basePath}/vendors` },
-    { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
-    { icon: BarChart, label: 'Analytics', path: `${basePath}/analytics` },
-    { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
-  ] : user?.role === 'manager' ? [
-    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
-    { icon: Store, label: 'My Vendors', path: `${basePath}/vendors` },
-    { icon: DollarSign, label: 'Commissions', path: `${basePath}/commissions` },
-    { icon: Wallet, label: 'PEPS', path: `${basePath}/peps` },
-    { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
-    { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
-  ] : user?.role === 'vendor' ? [
-    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
-    { icon: Package, label: 'Products', path: `${basePath}/products` },
-    { icon: ShoppingBag, label: 'Orders', path: `${basePath}/orders` },
-    { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
-    { icon: BarChart, label: 'Analytics', path: `${basePath}/analytics` },
-    { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
-  ] : user?.role === 'customer' ? [
-    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
-    { icon: ShoppingBag, label: 'My Orders', path: `${basePath}/orders` },
-    { icon: MapPin, label: 'My Addresses', path: `${basePath}/addresses` },
-    { icon: Heart, label: 'Favorite Vendors', path: `${basePath}/favorites` },
-    { icon: Star, label: 'My Reviews', path: `${basePath}/reviews` },
-    { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
-    { icon: Share2, label: 'Referrals', path: `${basePath}/referrals` },
-    { icon: Wallet, label: 'PEPS', path: `${basePath}/peps` },
-    { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
-  ] : [
-    { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
-  ];
+  // Define menu items based on user role (lowercase comparison)
+  const menuItems = (() => {
+    const role = user.role?.toLowerCase() || '';
+    
+    if (role === 'chief') return [
+      { icon: Home, label: 'Overview', path: `${basePath}/overview` },
+      { icon: Users, label: 'Managers & Coordinators', path: `${basePath}/managers` },
+      { icon: DollarSign, label: 'Payments', path: `${basePath}/payments` },
+      { icon: Package, label: 'Products & Deals', path: `${basePath}/products` },
+      { icon: Truck, label: 'Delivery Schedules', path: `${basePath}/delivery` },
+      { icon: Star, label: 'Reviews', path: `${basePath}/reviews` },
+      { icon: FileText, label: 'Blog Posts', path: `${basePath}/blog` },
+      { icon: Image, label: 'Adverts', path: `${basePath}/adverts` },
+      { icon: UserCheck, label: 'Vendor Assignment', path: `${basePath}/vendor-assignment` },
+      { icon: Store, label: 'Vendor Management', path: `${basePath}/vendor-management` },
+      { icon: Wallet, label: 'Peps Management', path: `${basePath}/peps` },
+      { icon: MessageSquare, label: 'Messaging', path: `${basePath}/messaging` },
+       { icon: MessageSquare, label: 'Chief Inbox', path: `${basePath}/chiefinbox` },
+      { icon: PieChart, label: 'Analytics & Reports', path: `${basePath}/analytics` },
+      { icon: Settings, label: 'System Settings', path: `${basePath}/settings` },
+    ];
+    
+    if (role === 'coordinator') return [
+      { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
+      { icon: Users, label: 'Managers', path: `${basePath}/managers` },
+      { icon: DollarSign, label: 'Payments', path: `${basePath}/payments` },
+      { icon: Package, label: 'Products & Deals', path: `${basePath}/products` },
+      { icon: Truck, label: 'Delivery Schedules', path: `${basePath}/delivery` },
+      { icon: Star, label: 'Reviews', path: `${basePath}/reviews` },
+      { icon: Store, label: 'Vendors', path: `${basePath}/vendors` },
+      { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
+       { icon: MessageSquare, label: 'Coord Inbox', path: `${basePath}/coordinatorinbox` },
+      { icon: BarChart, label: 'Analytics', path: `${basePath}/analytics` },
+      { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
+    ];
+    
+    if (role === 'manager') return [
+      { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
+      { icon: Store, label: 'My Vendors', path: `${basePath}/vendors` },
+      { icon: DollarSign, label: 'Commissions', path: `${basePath}/commissions` },
+      { icon: Wallet, label: 'PEPS', path: `${basePath}/peps` },
+      { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
+      { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
+    ];
+    
+    if (role === 'vendor') return [
+      { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
+      { icon: Package, label: 'Products', path: `${basePath}/products` },
+      { icon: ShoppingBag, label: 'Orders', path: `${basePath}/orders` },
+      { icon: DollarSign, label: 'Payments', path: `${basePath}/payments` },
+      { icon: Truck, label: 'Delivery', path: `${basePath}/delivery` },
+      { icon: Star, label: 'Reviews', path: `${basePath}/reviews` },
+      { icon: Wallet, label: 'PEPS', path: `${basePath}/peps` },
+      { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
+      { icon: BarChart, label: 'Analytics', path: `${basePath}/analytics` },
+      { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
+    ];
+    
+    if (role === 'customer') return [
+      { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
+      { icon: ShoppingBag, label: 'My Orders', path: `${basePath}/orders` },
+      { icon: MapPin, label: 'My Addresses', path: `${basePath}/addresses` },
+      { icon: Heart, label: 'Favorite Vendors', path: `${basePath}/favorites` },
+      { icon: Star, label: 'My Reviews', path: `${basePath}/reviews` },
+      { icon: MessageSquare, label: 'Messages', path: `${basePath}/messages` },
+      { icon: Share2, label: 'Referrals', path: `${basePath}/referrals` },
+      { icon: Wallet, label: 'PEPS', path: `${basePath}/peps` },
+      { icon: Settings, label: 'Settings', path: `${basePath}/settings` },
+    ];
+    
+    return [
+      { icon: Home, label: 'Dashboard', path: `${basePath}/dashboard` },
+    ];
+  })();
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
@@ -176,7 +218,7 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({ children }) =>
               <div className={`text-sm text-gray-500 capitalize ${isSidebarOpen ? '' : 'hidden'}`}>
                 {user?.role}
               </div>
-              {user?.role === 'chief' && isSidebarOpen && (
+              {user?.role?.toLowerCase() === 'chief' && isSidebarOpen && (
                 <div className="mt-1 text-xs px-2 py-1 bg-purple-100 text-purple-800 rounded-full inline-block">
                   Administrator
                 </div>

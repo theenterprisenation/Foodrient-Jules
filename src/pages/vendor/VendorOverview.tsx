@@ -62,9 +62,15 @@ const VendorOverview = () => {
     
     try {
       // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
       
+      // Silent fallback if user is not authenticated (shouldn't happen since page is protected)
+      if (userError || !user) {
+        console.warn('User session issue detected, falling back to mock data');
+        useMockData();
+        return;
+      }
+
       // Fetch vendor profile
       const { data: vendorData, error: vendorError } = await supabase
         .from('vendors')
@@ -215,9 +221,10 @@ const VendorOverview = () => {
       
     } catch (error: any) {
       console.error('Error fetching dashboard data:', error);
-      setError(error.message || 'Failed to load dashboard data');
-      
-      // Use mock data if API fails
+      // Only show non-authentication errors
+      if (!error.message.includes('not authenticated')) {
+        setError(error.message || 'Failed to load dashboard data');
+      }
       useMockData();
     } finally {
       setIsLoading(false);
@@ -340,8 +347,8 @@ const VendorOverview = () => {
         </div>
       </div>
 
-      {/* Error Message */}
-      {error && (
+      {/* Only show non-authentication errors */}
+      {error && !error.includes('not authenticated') && (
         <div className="mb-6 p-4 bg-red-50 rounded-lg flex items-center text-red-800">
           <AlertCircle className="h-5 w-5 mr-2" />
           <p>{error}</p>

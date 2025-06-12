@@ -64,7 +64,7 @@ const VendorPeps = () => {
     try {
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      if (!user) throw new Error();
       
       // Fetch user profile
       const { data: profile, error: profileError } = await supabase
@@ -122,27 +122,26 @@ const VendorPeps = () => {
     try {
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
-        .select('id, full_name, points_balance');
+        .select('id, full_name, points_balance, email')
+        .order('full_name');
         
       if (profilesError) throw profilesError;
       
-      const { data: emailsData, error: emailsError } = await supabase
-        .from('users')
-        .select('id, email');
-        
-      if (emailsError) throw emailsError;
-      
-      // Combine the data
-      const usersWithEmails = profiles?.map(profile => ({
-        id: profile.id,
-        full_name: profile.full_name || 'Unknown User',
-        email: emailsData?.find(e => e.id === profile.id)?.email || 'N/A',
-        points_balance: profile.points_balance || 0
-      })) || [];
+      // Filter out current user and format the data
+      const { data: { user } } = await supabase.auth.getUser();
+      const usersWithEmails = profiles
+        ?.filter(profile => user ? profile.id !== user.id : true)
+        .map(profile => ({
+          id: profile.id,
+          full_name: profile.full_name || 'Unknown User',
+          email: profile.email || 'N/A',
+          points_balance: profile.points_balance || 0
+        })) || [];
       
       setUsers(usersWithEmails);
     } catch (error: any) {
       console.error('Error fetching users:', error);
+      setError(error.message);
     }
   };
 

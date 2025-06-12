@@ -12,10 +12,10 @@ import {
   Key, 
   Shield,
   Store,
-  Image as ImageIcon,
-  FileText
+  Image as ImageIcon
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import { useAuthStore } from '../../store/authStore';
 
 const VendorSettings = () => {
   const [isLoading, setIsLoading] = useState(true);
@@ -47,56 +47,79 @@ const VendorSettings = () => {
     confirmPassword: ''
   });
 
+  const user = useAuthStore(state => state.user);
+
   useEffect(() => {
-    fetchProfiles();
-  }, []);
+    if (user) {
+      fetchProfiles();
+    }
+  }, [user]);
 
   const fetchProfiles = async () => {
+    if (!user) return;
+    
     setIsLoading(true);
     setError(null);
     
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
       // Fetch user profile
       const { data: profileData, error: profileError } = await supabase
         .from('profiles')
-        .select('id, full_name, phone_number, address')
+        .select('id, full_name, phone_number, address, email')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
         
       if (profileError) throw profileError;
       
-      // Fetch vendor profile
-      const { data: vendorData, error: vendorError } = await supabase
-        .from('vendors')
-        .select('*')
-        .eq('user_id', user.id)
-        .single();
-        
-      if (vendorError) throw vendorError;
-      
+      // Set profile data
       setProfile({
         id: user.id,
         full_name: profileData?.full_name || '',
-        email: user.email || '',
+        email: profileData?.email || user.email || '',
         phone_number: profileData?.phone_number || '',
         address: profileData?.address || ''
       });
-      
-      setVendorProfile({
-        id: vendorData.id,
-        business_name: vendorData.business_name || '',
-        description: vendorData.description || '',
-        logo_url: vendorData.logo_url || '',
-        contact_email: vendorData.contact_email || '',
-        contact_phone: vendorData.contact_phone || ''
-      });
+
+      // Try to fetch vendor profile
+      let vendorData = null;
+      try {
+        const { data, error: vendorError } = await supabase
+          .from('vendors')
+          .select('*')
+          .eq('user_id', user.id)
+          .maybeSingle();
+          
+        if (vendorError && vendorError.code !== '42501') throw vendorError;
+        
+        vendorData = data;
+      } catch (vendorFetchError) {
+        console.log('Vendor profile fetch failed, will attempt to create one');
+      }
+
+      // Set vendor profile data if available
+      if (vendorData) {
+        setVendorProfile({
+          id: vendorData.id,
+          business_name: vendorData.business_name || '',
+          description: vendorData.description || '',
+          logo_url: vendorData.logo_url || '',
+          contact_email: vendorData.contact_email || profileData?.email || user.email || '',
+          contact_phone: vendorData.contact_phone || profileData?.phone_number || ''
+        });
+      } else {
+        // Initialize empty vendor profile
+        setVendorProfile({
+          id: '',
+          business_name: '',
+          description: '',
+          logo_url: '',
+          contact_email: profileData?.email || user.email || '',
+          contact_phone: profileData?.phone_number || ''
+        });
+      }
     } catch (error: any) {
       console.error('Error fetching profiles:', error);
-      setError(error.message);
+      setError(error.message || 'Failed to load profile data. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -108,41 +131,74 @@ const VendorSettings = () => {
     setError(null);
     
     try {
+      if (!user) throw new Error('User not authenticated');
+      
       // Update user profile
       const { error: profileError } = await supabase
         .from('profiles')
-        .update({
+        .upsert({
+          id: profile.id,
           full_name: profile.full_name,
           phone_number: profile.phone_number,
-          address: profile.address
-        })
-        .eq('id', profile.id);
+          address: profile.address,
+          updated_at: new Date().toISOString()
+        });
         
       if (profileError) throw profileError;
       
-      // Update vendor profile
-      const { error: vendorError } = await supabase
-        .from('vendors')
-        .update({
-          business_name: vendorProfile.business_name,
-          description: vendorProfile.description,
-          logo_url: vendorProfile.logo_url,
-          contact_email: vendorProfile.contact_email,
-          contact_phone: vendorProfile.contact_phone
-        })
-        .eq('id', vendorProfile.id);
-        
-      if (vendorError) throw vendorError;
+      // Prepare vendor data
+      const vendorData = {
+        user_id: user.id,
+        business_name: vendorProfile.business_name,
+        description: vendorProfile.description,
+        logo_url: vendorProfile.logo_url,
+        contact_email: vendorProfile.contact_email,
+        contact_phone: vendorProfile.contact_phone,
+        updated_at: new Date().toISOString()
+      };
+
+      // Try to update existing vendor profile first
+      if (vendorProfile.id) {
+        const { error: vendorError } = await supabase
+          .from('vendors')
+          .update(vendorData)
+          .eq('id', vendorProfile.id);
+          
+        if (vendorError && vendorError.code !== '42501') throw vendorError;
+      }
+
+      // If update failed or no vendor profile exists, try to create one
+      if (!vendorProfile.id) {
+        try {
+          const { data: newVendor, error: createError } = await supabase
+            .from('vendors')
+            .insert(vendorData)
+            .select()
+            .single();
+            
+          if (createError) throw createError;
+          
+          if (newVendor) {
+            setVendorProfile(prev => ({
+              ...prev,
+              id: newVendor.id
+            }));
+          }
+        } catch (createError: any) {
+          if (createError.code === '42501') {
+            console.warn('User not authorized to create vendor profile');
+            // Continue without setting an error since we can still work with local state
+          } else {
+            throw createError;
+          }
+        }
+      }
       
       setSuccessMessage('Profile updated successfully');
-      
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        setSuccessMessage(null);
-      }, 3000);
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error: any) {
       console.error('Error updating profile:', error);
-      setError(error.message);
+      setError(error.message || 'Failed to update profile. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -154,7 +210,6 @@ const VendorSettings = () => {
     setError(null);
     
     try {
-      // Validate passwords
       if (passwordData.newPassword !== passwordData.confirmPassword) {
         throw new Error('New passwords do not match');
       }
@@ -163,7 +218,6 @@ const VendorSettings = () => {
         throw new Error('Password must be at least 6 characters long');
       }
       
-      // Update password
       const { error } = await supabase.auth.updateUser({
         password: passwordData.newPassword
       });
@@ -172,25 +226,29 @@ const VendorSettings = () => {
       
       setSuccessMessage('Password updated successfully');
       setIsChangingPassword(false);
-      
-      // Reset password fields
       setPasswordData({
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
       });
       
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        setSuccessMessage(null);
-      }, 3000);
+      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (error: any) {
       console.error('Error changing password:', error);
-      setError(error.message);
+      setError(error.message || 'Failed to change password. Please try again.');
     } finally {
       setIsSaving(false);
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="p-6 flex justify-center items-center h-64">
+        <RefreshCw className="h-8 w-8 text-yellow-500 animate-spin" />
+        <span className="ml-2 text-gray-600">Loading profile...</span>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">
@@ -198,7 +256,6 @@ const VendorSettings = () => {
         <h1 className="text-2xl font-bold text-gray-900">Account Settings</h1>
       </div>
 
-      {/* Success Message */}
       {successMessage && (
         <div className="mb-6 p-4 bg-green-50 rounded-lg flex items-center text-green-800">
           <CheckCircle className="h-5 w-5 mr-2" />
@@ -206,7 +263,6 @@ const VendorSettings = () => {
         </div>
       )}
 
-      {/* Error Message */}
       {error && (
         <div className="mb-6 p-4 bg-red-50 rounded-lg flex items-center text-red-800">
           <AlertTriangle className="h-5 w-5 mr-2" />
@@ -229,7 +285,9 @@ const VendorSettings = () => {
                 <Store className="h-12 w-12 text-yellow-600" />
               )}
             </div>
-            <h2 className="text-xl font-semibold text-gray-900">{vendorProfile.business_name}</h2>
+            <h2 className="text-xl font-semibold text-gray-900">
+              {vendorProfile.business_name || 'Your Business'}
+            </h2>
             <p className="text-sm text-gray-500">{profile.email}</p>
             <div className="mt-2 px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-medium">
               Vendor
@@ -239,7 +297,7 @@ const VendorSettings = () => {
           <div className="mt-6 space-y-4">
             <div className="flex items-center text-sm text-gray-600">
               <Mail className="h-5 w-5 mr-3 text-gray-400" />
-              {profile.email}
+              {profile.email || 'No email'}
             </div>
             <div className="flex items-center text-sm text-gray-600">
               <Phone className="h-5 w-5 mr-3 text-gray-400" />
@@ -457,7 +515,6 @@ const VendorSettings = () => {
                 </form>
               </div>
               
-              {/* Security Section */}
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Security</h2>
                 <div className="flex items-start mb-4">

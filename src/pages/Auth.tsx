@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { AlertCircle, ArrowLeft, ShoppingBag, Eye, EyeOff, Loader, WifiOff, RefreshCw } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ShoppingBag, Eye, EyeOff, Loader, WifiOff, RefreshCw, Clock } from 'lucide-react';
 import { handleAuthError } from '../utils/auth-helpers';
 import { NetworkMonitor } from '../utils/networkMonitor';
+import { supabase } from '../lib/supabase';
 
 const Auth = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -16,6 +17,9 @@ const Auth = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [status, setStatus] = useState<'idle' | 'loading' | 'timeout' | 'error' | 'success'>('idle');
   const [retryCount, setRetryCount] = useState(0);
+  const [showResendButton, setShowResendButton] = useState(false);
+  const [resendButtonDisabled, setResendButtonDisabled] = useState(false);
+  const [resendCountdown, setResendCountdown] = useState(60);
   const { user, signIn, signUp, resetPassword } = useAuthStore();
   const location = useLocation();
   const [loginTimeout, setLoginTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -29,6 +33,7 @@ const Auth = () => {
     setSuccessMessage('');
     setStatus('idle');
     setRetryCount(0);
+    setShowResendButton(false);
   }, [isLogin, isForgotPassword]);
 
   // Clear timeout on unmount
@@ -40,8 +45,51 @@ const Auth = () => {
     };
   }, [loginTimeout]);
 
+  // Handle countdown for resend button
+  useEffect(() => {
+    let countdownInterval: NodeJS.Timeout | null = null;
+    
+    if (showResendButton && resendButtonDisabled && resendCountdown > 0) {
+      countdownInterval = setInterval(() => {
+        setResendCountdown(prev => {
+          if (prev <= 1) {
+            setResendButtonDisabled(false);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    
+    return () => {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+      }
+    };
+  }, [showResendButton, resendButtonDisabled, resendCountdown]);
+
   const checkNetworkConnectivity = () => {
     return NetworkMonitor.getInstance().isOnline();
+  };
+
+  const handleResendVerificationEmail = async () => {
+    if (resendButtonDisabled) return;
+    
+    setResendButtonDisabled(true);
+    setResendCountdown(60);
+    
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email,
+      });
+      
+      if (error) throw error;
+      
+      setSuccessMessage('Verification email resent successfully! Please check your inbox.');
+    } catch (error: any) {
+      setError(handleAuthError(error));
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -49,6 +97,7 @@ const Auth = () => {
     setError('');
     setSuccessMessage('');
     setStatus('loading');
+    setShowResendButton(false);
 
     // Check network connectivity first
     if (!checkNetworkConnectivity()) {
@@ -89,7 +138,18 @@ const Auth = () => {
         setStatus('success');
       }
     } catch (err) {
-      setError(handleAuthError(err));
+      const errorMessage = handleAuthError(err);
+      setError(errorMessage);
+      
+      // Check if the error is about email verification
+      if (isLogin && errorMessage.includes('Please verify your email')) {
+        setShowResendButton(true);
+        setResendButtonDisabled(true);
+      } else if (errorMessage.includes('invalid or has expired')) {
+        setShowResendButton(true);
+        setResendButtonDisabled(true);
+      }
+      
       setStatus(err.message?.includes('timed out') ? 'timeout' : 'error');
       console.error('Auth error:', err);
     } finally {
@@ -273,6 +333,30 @@ const Auth = () => {
             {!checkNetworkConnectivity() && <WifiOff className="h-4 w-4 mr-1 flex-shrink-0" />}
             {checkNetworkConnectivity() && <AlertCircle className="h-4 w-4 mr-1 flex-shrink-0" />}
             <span>{error}</span>
+          </div>
+        )}
+
+        {showResendButton && (
+          <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={handleResendVerificationEmail}
+              disabled={resendButtonDisabled}
+              className={`flex items-center text-sm ${
+                resendButtonDisabled 
+                  ? 'text-gray-400 cursor-not-allowed' 
+                  : 'text-yellow-600 hover:text-yellow-700'
+              }`}
+            >
+              {resendButtonDisabled ? (
+                <>
+                  <Clock className="h-4 w-4 mr-1" />
+                  Resend verification email ({resendCountdown}s)
+                </>
+              ) : (
+                'Resend verification email'
+              )}
+            </button>
           </div>
         )}
 

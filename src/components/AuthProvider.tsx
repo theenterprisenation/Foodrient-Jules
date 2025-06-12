@@ -24,7 +24,9 @@ const AuthContext = createContext<AuthContextType>({
   serverStatus: 'unknown',
   retryAuth: async () => {},
   sessionChecksum: null,
-  validateSession: async () => false
+  validateSession: async () => false,
+  isAdmin: false,
+  role: 'visitor'
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -33,7 +35,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     status: 'idle',
     error: null,
     serverStatus: 'unknown',
-    sessionChecksum: null
+    sessionChecksum: null,
+    role: 'visitor',
+    isAdmin: false
   });
 
   // Refs for managing state and side effects
@@ -53,13 +57,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateState = async (partialState: Partial<AuthState>) => {
     if (!isMounted.current) return;
 
-    setState(prev => {
-      const newState = { ...prev, ...partialState };
-      if (newState.user !== prev.user) {
-        newState.sessionChecksum = null;
+    // Extract admin check if user is changing
+    if (partialState.user !== undefined) {
+      const isAdmin = partialState.user ? await supabase.isAdminUser(partialState.user.id) : false;
+      const role = partialState.user?.role?.toLowerCase() || 'visitor';
+      
+      if (partialState.user) {
+        localStorage.setItem('isAdmin', isAdmin ? 'true' : 'false');
+      } else {
+        localStorage.removeItem('isAdmin');
       }
-      return newState;
-    });
+
+      setState(prev => ({
+        ...prev,
+        ...partialState,
+        role,
+        isAdmin
+      }));
+    } else {
+      setState(prev => ({
+        ...prev,
+        ...partialState
+      }));
+    }
 
     if (partialState.user) {
       try {
@@ -121,7 +141,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Core authentication initialization - THE CRITICAL FIX
+  // Core authentication initialization
   const initializeAuth = useCallback(async (): Promise<void> => {
     if (initializeAttempted.current) return;
     initializeAttempted.current = true;
@@ -130,46 +150,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     lastActivityTime.current = Date.now();
 
     try {
-      // FIRST: Check localStorage directly for existing session
-      const storageKey = `sb-${supabase.supabaseUrl}.auth.token`;
-      const sessionStr = localStorage.getItem(storageKey);
-      const session = sessionStr ? JSON.parse(sessionStr) : null;
-
-      if (session?.expires_at && session.expires_at * 1000 > Date.now()) {
-        // We have a valid session in localStorage
-        await updateState({
-          user: session.user,
-          status: 'authenticated',
-          serverStatus: 'healthy'
-        });
-        scheduleTokenRefresh(session.expires_at * 1000);
-        return;
-      }
-
-      // SECOND: If no localStorage session, check with Supabase
-      const { data: { session: supabaseSession }, error } = await supabase.auth.getSession();
+      // Check for existing session
+      const { data: { session }, error } = await supabase.auth.getSession();
       
       if (error) throw error;
-      if (!supabaseSession) {
+      if (!session) {
         await updateState({ user: null, status: 'unauthenticated' });
         return;
       }
 
-      // Validate whatever session we found
-      const isValid = await validateSession(supabaseSession);
+      // Validate session
+      const isValid = await validateSession(session);
       if (!isValid) {
         await supabase.auth.signOut();
         await updateState({ user: null, status: 'unauthenticated' });
         return;
       }
 
+      // Use centralized profile function
+      const profile = await supabase.getOrCreateUserProfile(session.user.id);
+      const userWithRole = {
+        ...session.user,
+        role: profile?.role || 'visitor'
+      };
+
       await updateState({
-        user: supabaseSession.user,
+        user: userWithRole,
         status: 'authenticated',
         serverStatus: 'healthy'
       });
 
-      scheduleTokenRefresh(supabaseSession.expires_at * 1000);
+      scheduleTokenRefresh(session.expires_at * 1000);
     } catch (error: any) {
       console.error('Auth init error:', error);
       await updateState({
@@ -180,7 +191,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Enhanced session refresh with integrity checks
+  // Enhanced session refresh with retry logic
   const refreshSessionWithRetry = useCallback(async (attempt = 0): Promise<void> => {
     if (!isMounted.current || attempt >= MAX_RETRIES || sessionLock.current) {
       return;
@@ -208,8 +219,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return;
       }
 
+      // Use centralized profile function
+      const profile = await supabase.getOrCreateUserProfile(session.user.id);
+      const userWithRole = {
+        ...session.user,
+        role: profile?.role || 'visitor'
+      };
+
       await updateState({
-        user: session.user,
+        user: userWithRole,
         status: 'authenticated',
         error: null,
         serverStatus: 'healthy'
@@ -322,7 +340,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await updateState({
             user: null,
             status: 'unauthenticated',
-            sessionChecksum: null
+            sessionChecksum: null,
+            role: 'visitor',
+            isAdmin: false
           });
           break;
           
@@ -331,8 +351,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (newSession) {
             const isValid = await validateSession(newSession);
             if (isValid) {
+              // Use centralized profile function
+              const profile = await supabase.getOrCreateUserProfile(newSession.user.id);
+              const userWithRole = {
+                ...newSession.user,
+                role: profile?.role || 'visitor'
+              };
+
               await updateState({
-                user: newSession.user,
+                user: userWithRole,
                 status: 'authenticated'
               });
               scheduleTokenRefresh(newSession.expires_at * 1000);
@@ -344,7 +371,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           
         case 'USER_UPDATED':
           if (newSession) {
-            await updateState({ user: newSession.user });
+            // Use centralized profile function
+            const profile = await supabase.getOrCreateUserProfile(newSession.user.id);
+            const userWithRole = {
+              ...newSession.user,
+              role: profile?.role || 'visitor'
+            };
+
+            await updateState({ user: userWithRole });
           }
           break;
       }
@@ -363,7 +397,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isMounted.current = true;
     setupSyncChannel();
     
-    // Direct event listeners for network status
+    // Network event listeners
     const handleOnline = () => handleNetworkChange(true);
     const handleOffline = () => handleNetworkChange(false);
     
@@ -371,6 +405,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     window.addEventListener('offline', handleOffline);
 
     initializeAuth();
+    startSessionValidation();
 
     healthCheckTimer.current = setInterval(async () => {
       const health = await checkServerStatus();
@@ -383,17 +418,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       isMounted.current = false;
       
-      // Cleanup timers
+      // Cleanup timers and listeners
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
       if (validationTimer.current) clearInterval(validationTimer.current);
       if (healthCheckTimer.current) clearInterval(healthCheckTimer.current);
       if (networkDebounceTimer.current) clearTimeout(networkDebounceTimer.current);
       
-      // Cleanup event listeners
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       
-      // Cleanup sync channel
       if (syncChannel.current) syncChannel.current.close();
     };
   }, [initializeAuth, handleNetworkChange]);
@@ -413,7 +446,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     validateSession: async () => {
       if (!state.user) return false;
       return validateSessionChecksum(state.user, state.sessionChecksum);
-    }
+    },
+    isAdmin: state.isAdmin,
+    role: state.role
   };
 
   return (

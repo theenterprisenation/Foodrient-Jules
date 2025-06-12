@@ -11,6 +11,7 @@ import CoordinatorOverview from '../coordinator/CoordinatorOverview';
 import CoordinatorManagers from '../coordinator/CoordinatorManagers';
 import CoordinatorVendors from '../coordinator/CoordinatorVendors';
 import CoordinatorMessaging from '../coordinator/CoordinatorMessaging';
+import CoordinatorInbox from '../coordinator/CoordinatorInbox';
 import CoordinatorAnalytics from '../coordinator/CoordinatorAnalytics';
 import CoordinatorSettings from '../coordinator/CoordinatorSettings';
 import CoordinatorPayments from '../coordinator/CoordinatorPayments';
@@ -74,6 +75,7 @@ const CoordinatorDashboard = () => {
           <Route path="managers" element={<CoordinatorManagers />} />
           <Route path="vendors" element={<CoordinatorVendors />} />
           <Route path="messages" element={<CoordinatorMessaging />} />
+          <Route path="coordinatorinbox" element={<CoordinatorInbox />} />
           <Route path="payments" element={<CoordinatorPayments />} />
           <Route path="products" element={<CoordinatorProducts />} />
           <Route path="delivery" element={<CoordinatorDelivery />} />

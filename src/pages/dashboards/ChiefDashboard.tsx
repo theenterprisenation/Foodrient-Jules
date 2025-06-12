@@ -15,6 +15,7 @@ import ChiefVendorAssignment from '../chief/ChiefVendorAssignment';
 import ChiefVendorManagement from '../chief/ChiefVendorManagement';
 import ChiefPeps from '../chief/ChiefPeps';
 import ChiefMessaging from '../chief/ChiefMessaging';
+import ChiefInbox from '../chief/ChiefInbox';
 import ChiefAnalytics from '../chief/ChiefAnalytics';
 import ChiefSettings from '../chief/ChiefSettings';
 import ChiefPayments from '../chief/ChiefPayments';
@@ -81,13 +82,14 @@ const ChiefDashboard = () => {
           <Route path="vendor-management" element={<ChiefVendorManagement />} />
           <Route path="peps" element={<ChiefPeps />} />
           <Route path="messaging" element={<ChiefMessaging />} />
+          <Route path="chiefinbox" element={<ChiefInbox />} />
           <Route path="payments" element={<ChiefPayments />} />
           <Route path="products" element={<ChiefProducts />} />
           <Route path="delivery" element={<ChiefDelivery />} />
           <Route path="reviews" element={<ChiefReviews />} />
           <Route path="analytics" element={<ChiefAnalytics />} />
           <Route path="settings" element={<ChiefSettings />} />
-          <Route path="*" element={<Navigate to="/chief/overview" replace />} />
+          <Route path="*" element={<Navigate to="/chief/overview\" replace />} />
         </Routes>
       </DashboardLayout>
     </ErrorBoundary>

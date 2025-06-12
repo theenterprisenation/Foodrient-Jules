@@ -24,7 +24,7 @@ interface Conversation {
   participants: {
     id: string;
     user_id: string;
-    role: 'owner' | 'admin' | 'member';
+    role: 'owner' | 'admin' | 'chief' | 'coordinator' | 'manager' | 'vendor' | 'customer';
     user: {
       full_name: string;
       email: string;
@@ -60,20 +60,27 @@ interface UserProfile {
 const CustomerMessages = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [users, setUsers] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [newMessage, setNewMessage] = useState('');
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [newConversationData, setNewConversationData] = useState({
+    title: '',
+    type: 'direct' as 'direct' | 'group',
+    participants: [] as string[]
+  });
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [messageSubscription, setMessageSubscription] = useState<any>(null);
 
   useEffect(() => {
     fetchConversations();
+    fetchUsers();
     
     return () => {
-      // Clean up subscription on unmount
       if (messageSubscription) {
         supabase.removeChannel(messageSubscription);
       }
@@ -88,14 +95,12 @@ const CustomerMessages = () => {
   }, [selectedConversation]);
 
   useEffect(() => {
-    // Scroll to bottom of messages
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const fetchConversations = async () => {
     setIsLoading(true);
     setError(null);
-    
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -125,7 +130,7 @@ const CustomerMessages = () => {
             id,
             user_id,
             role,
-            user:profiles(full_name)
+            user:profiles(full_name, email)
           )
         `)
         .in('id', conversationIds)
@@ -133,34 +138,8 @@ const CustomerMessages = () => {
         
       if (conversationsError) throw conversationsError;
       
-      // Fetch emails for participants
-      const userIds = conversationsData?.flatMap(conv => 
-        conv.participants?.map(p => p.user_id)
-      ).filter(Boolean) || [];
-      
-      const { data: emailsData, error: emailsError } = await supabase
-        .from('users')
-        .select('id, email');
-        
-      if (emailsError) throw emailsError;
-      
-      // Create email lookup map
-      const emailMap = new Map(emailsData?.map(u => [u.id, u.email]) || []);
-      
-      // Add emails to participants
-      const conversationsWithEmails = conversationsData?.map(conversation => ({
-        ...conversation,
-        participants: conversation.participants?.map(participant => ({
-          ...participant,
-          user: {
-            ...participant.user,
-            email: emailMap.get(participant.user_id) || 'N/A'
-          }
-        }))
-      }));
-      
       // Get last message for each conversation
-      const conversationsWithLastMessage = await Promise.all((conversationsWithEmails || []).map(async (conversation) => {
+      const conversationsWithLastMessage = await Promise.all((conversationsData || []).map(async (conversation) => {
         const { data: messagesData, error: messagesError } = await supabase
           .from('messages')
           .select(`
@@ -206,11 +185,9 @@ const CustomerMessages = () => {
       // Mark messages as read
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        // Get message IDs that need to be marked as read
         const messageIds = data?.filter(m => m.sender_id !== user.id).map(m => m.id) || [];
         
         if (messageIds.length > 0) {
-          // Check which messages already have read status
           const { data: existingStatuses, error: statusError } = await supabase
             .from('message_status')
             .select('message_id')
@@ -220,11 +197,9 @@ const CustomerMessages = () => {
             
           if (statusError) throw statusError;
           
-          // Filter out messages that are already marked as read
           const existingStatusIds = new Set(existingStatuses?.map(s => s.message_id) || []);
           const messagesToUpdate = messageIds.filter(id => !existingStatusIds.has(id));
           
-          // Update status for messages that need it
           if (messagesToUpdate.length > 0) {
             const statusUpdates = messagesToUpdate.map(message_id => ({
               message_id,
@@ -247,12 +222,10 @@ const CustomerMessages = () => {
   };
 
   const subscribeToMessages = (conversationId: string) => {
-    // Clean up existing subscription if any
     if (messageSubscription) {
       supabase.removeChannel(messageSubscription);
     }
     
-    // Create new subscription
     const subscription = supabase
       .channel(`messages:${conversationId}`)
       .on(
@@ -264,7 +237,6 @@ const CustomerMessages = () => {
           filter: `conversation_id=eq.${conversationId}`
         },
         async (payload) => {
-          // Fetch the complete message with sender info
           const { data: message, error } = await supabase
             .from('messages')
             .select(`
@@ -282,7 +254,6 @@ const CustomerMessages = () => {
           if (message) {
             setMessages(prev => [...prev, message]);
             
-            // Mark message as read if it's not from the current user
             const { data: { user } } = await supabase.auth.getUser();
             if (user && message.sender_id !== user.id) {
               await supabase
@@ -299,6 +270,22 @@ const CustomerMessages = () => {
       .subscribe();
     
     setMessageSubscription(subscription);
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email')
+        .order('full_name');
+
+      if (profilesError) throw profilesError;
+
+      setUsers(profilesData || []);
+    } catch (error: any) {
+      console.error('Error fetching users:', error);
+      setError(error.message);
+    }
   };
 
   const handleSendMessage = async () => {
@@ -320,9 +307,74 @@ const CustomerMessages = () => {
       if (error) throw error;
       
       setNewMessage('');
+      fetchConversations(); // Refresh conversations to update last message
     } catch (error: any) {
       console.error('Error sending message:', error);
       setError('Failed to send message');
+    }
+  };
+
+  const handleCreateConversation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newConversationData.title || newConversationData.participants.length === 0) {
+      setError('Please fill all required fields');
+      return;
+    }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Create conversation
+      const { data: conversation, error: conversationError } = await supabase
+        .from('conversations')
+        .insert([{
+          title: newConversationData.title,
+          type: newConversationData.type
+        }])
+        .select()
+        .single();
+      if (conversationError) throw conversationError;
+
+      // Add participants
+      const participants = [
+        {
+          conversation_id: conversation.id,
+          user_id: user.id,
+          role: 'customer' as const
+        },
+        ...newConversationData.participants.map(userId => ({
+          conversation_id: conversation.id,
+          user_id: userId,
+          role: 'member' as const
+        }))
+      ];
+
+      const { error: participantsError } = await supabase
+        .from('conversation_participants')
+        .insert(participants);
+      if (participantsError) throw participantsError;
+
+      // Add initial system message
+      const { error: messageError } = await supabase
+        .from('messages')
+        .insert([{
+          conversation_id: conversation.id,
+          sender_id: user.id,
+          content: `Conversation "${newConversationData.title}" created`,
+          type: 'system'
+        }]);
+      if (messageError) throw messageError;
+
+      setSuccessMessage('Conversation created successfully');
+      fetchConversations();
+      setIsCreatingConversation(false);
+
+      setTimeout(() => {
+        setSuccessMessage(null);
+      }, 3000);
+    } catch (error: any) {
+      console.error('Error creating conversation:', error);
+      setError(error.message);
     }
   };
 
@@ -345,17 +397,14 @@ const CustomerMessages = () => {
     const date = new Date(dateString);
     const now = new Date();
     
-    // If today, show time
     if (date.toDateString() === now.toDateString()) {
       return format(date, 'h:mm a');
     }
     
-    // If this year, show month and day
     if (date.getFullYear() === now.getFullYear()) {
       return format(date, 'MMM d');
     }
     
-    // Otherwise show full date
     return format(date, 'MMM d, yyyy');
   };
 
@@ -363,15 +412,24 @@ const CustomerMessages = () => {
     <div className="p-6">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Messages</h1>
-        <div className="relative">
-          <input
-            type="text"
-            placeholder="Search conversations..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
-          />
-          <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search conversations..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
+            />
+            <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
+          </div>
+          <button
+            className="flex items-center gap-2 bg-yellow-500 text-white py-2 px-4 rounded-md hover:bg-yellow-600 transition-colors"
+            onClick={() => setIsCreatingConversation(true)}
+          >
+            <Plus size={16} />
+            New Conversation
+          </button>
         </div>
       </div>
 
@@ -426,7 +484,7 @@ const CustomerMessages = () => {
                     <div className="ml-3 flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium text-gray-900 truncate">
-                          {conversation.title || 'Untitled Conversation'}
+                          {conversation.title || conversation.participants.map(p => p.user.full_name).join(', ')}
                         </p>
                         <p className="text-xs text-gray-500">
                           {conversation.last_message
@@ -476,12 +534,20 @@ const CustomerMessages = () => {
                   </div>
                   <div className="ml-3">
                     <h2 className="text-lg font-semibold text-gray-900">
-                      {selectedConversation.title || 'Untitled Conversation'}
+                      {selectedConversation.title || selectedConversation.participants.map(p => p.user.full_name).join(', ')}
                     </h2>
                     <p className="text-sm text-gray-500">
                       {selectedConversation.participants?.length || 0} participants
                     </p>
                   </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button className="p-2 rounded-full hover:bg-gray-100">
+                    <Users size={20} />
+                  </button>
+                  <button className="p-2 rounded-full hover:bg-gray-100">
+                    <Bell size={20} />
+                  </button>
                 </div>
               </div>
 
@@ -587,6 +653,106 @@ const CustomerMessages = () => {
           )}
         </div>
       </div>
+
+      {/* New Conversation Modal */}
+      {isCreatingConversation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium mb-4">New Conversation</h3>
+            
+            {error && (
+              <div className="mb-4 p-2 bg-red-100 text-red-700 rounded-md flex items-center gap-2">
+                <AlertTriangle size={16} />
+                {error}
+              </div>
+            )}
+            
+            {successMessage && (
+              <div className="mb-4 p-2 bg-green-100 text-green-700 rounded-md flex items-center gap-2">
+                <CheckCircle size={16} />
+                {successMessage}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateConversation}>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Title
+                </label>
+                <input
+                  type="text"
+                  className="w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  value={newConversationData.title}
+                  onChange={(e) => setNewConversationData({
+                    ...newConversationData,
+                    title: e.target.value
+                  })}
+                  required
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Type
+                </label>
+                <select
+                  className="w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                  value={newConversationData.type}
+                  onChange={(e) => setNewConversationData({
+                    ...newConversationData,
+                    type: e.target.value as 'direct' | 'group'
+                  })}
+                >
+                  <option value="direct">Direct Message</option>
+                  <option value="group">Group Chat</option>
+                </select>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Participants
+                </label>
+                <select
+                  multiple
+                  className="w-full border border-gray-300 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500 h-auto min-h-[100px]"
+                  value={newConversationData.participants}
+                  onChange={(e) => {
+                    const options = Array.from(e.target.selectedOptions, option => option.value);
+                    setNewConversationData({
+                      ...newConversationData,
+                      participants: options
+                    });
+                  }}
+                  required
+                >
+                  {users.map(user => (
+                    <option key={user.id} value={user.id}>
+                      {user.full_name} ({user.email})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">Hold Ctrl/Cmd to select multiple</p>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                  onClick={() => setIsCreatingConversation(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600"
+                >
+                  Create
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

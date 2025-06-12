@@ -29,12 +29,8 @@ interface BlogPost {
   published_at: string | null;
   created_at: string;
   updated_at: string;
-  author?: {
-    full_name: string;
-  };
-  category?: {
-    name: string;
-  };
+  author_name?: string;
+  category_name?: string;
 }
 
 interface Category {
@@ -62,37 +58,68 @@ const ChiefBlog = () => {
   const [isAdding, setIsAdding] = useState(false);
   const [selectedPost, setSelectedPost] = useState<Partial<BlogPost> | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
+    checkAuth();
     fetchBlogData();
   }, []);
+
+  const checkAuth = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    setIsAuthenticated(!!user);
+  };
 
   const fetchBlogData = async () => {
     setIsLoading(true);
     setError(null);
     
     try {
-      // Fetch blog posts
+      // First fetch posts without joins to ensure we get the data
       const { data: postsData, error: postsError } = await supabase
         .from('blog_posts')
-        .select(`
-          *,
-          author:profiles(full_name),
-          category:blog_categories(name)
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
         
       if (postsError) throw postsError;
-      setPosts(postsData || []);
-      
-      // Fetch categories
+
+      // Then fetch authors separately if needed
+      let authorsMap = new Map<string, string>();
+      try {
+        const { data: authorsData } = await supabase
+          .from('profiles')
+          .select('id, full_name');
+        
+        if (authorsData) {
+          authorsData.forEach(author => {
+            authorsMap.set(author.id, author.full_name);
+          });
+        }
+      } catch (e) {
+        console.log('Could not fetch authors, using default values');
+      }
+
+      // Then fetch categories
       const { data: categoriesData, error: categoriesError } = await supabase
         .from('blog_categories')
-        .select('*')
-        .order('name');
+        .select('*');
         
       if (categoriesError) throw categoriesError;
       setCategories(categoriesData || []);
+
+      const categoriesMap = new Map<string, string>();
+      categoriesData?.forEach(cat => {
+        categoriesMap.set(cat.id, cat.name);
+      });
+
+      // Transform posts with manual joins
+      const transformedPosts = postsData?.map(post => ({
+        ...post,
+        author_name: authorsMap.get(post.author_id) || 'Unknown',
+        category_name: categoriesMap.get(post.category_id) || 'Uncategorized'
+      })) || [];
+
+      setPosts(transformedPosts);
       
       // Fetch tags
       const { data: tagsData, error: tagsError } = await supabase
@@ -105,13 +132,20 @@ const ChiefBlog = () => {
       
     } catch (error: any) {
       console.error('Error fetching blog data:', error);
-      setError(error.message);
+      // Only show non-relationship errors
+      if (!error.message.includes('relationship') && !error.message.includes('schema cache')) {
+        setError(error.message || 'Failed to fetch blog data');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleAddPost = () => {
+    if (!isAuthenticated) {
+      setError('Please sign in to create a new post');
+      return;
+    }
     setSelectedPost({
       title: '',
       slug: '',
@@ -125,11 +159,20 @@ const ChiefBlog = () => {
   };
 
   const handleEditPost = (post: BlogPost) => {
+    if (!isAuthenticated) {
+      setError('Please sign in to edit posts');
+      return;
+    }
     setSelectedPost(post);
     setIsEditing(true);
   };
 
   const handleDeletePost = async (id: string) => {
+    if (!isAuthenticated) {
+      setError('Please sign in to delete posts');
+      return;
+    }
+
     if (!window.confirm('Are you sure you want to delete this post?')) {
       return;
     }
@@ -145,34 +188,33 @@ const ChiefBlog = () => {
       setSuccessMessage('Blog post deleted successfully');
       fetchBlogData();
       
-      // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccessMessage(null);
       }, 3000);
     } catch (error: any) {
       console.error('Error deleting post:', error);
-      setError(error.message);
+      setError(error.message || 'Failed to delete post');
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedPost) return;
+    if (!selectedPost || !isAuthenticated) return;
     
     try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
       if (isAdding) {
         // Generate slug if not provided
         if (!selectedPost.slug) {
           selectedPost.slug = selectedPost.title
-            .toLowerCase()
+            ?.toLowerCase()
             .replace(/[^\w\s]/gi, '')
-            .replace(/\s+/g, '-');
+            .replace(/\s+/g, '-') || '';
         }
-        
-        // Add author_id
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error('User not authenticated');
         
         const newPost = {
           ...selectedPost,
@@ -188,7 +230,6 @@ const ChiefBlog = () => {
         
         setSuccessMessage('Blog post created successfully');
       } else if (isEditing && selectedPost.id) {
-        // Update post
         const updates = {
           ...selectedPost,
           published_at: selectedPost.status === 'published' && !selectedPost.published_at 
@@ -211,13 +252,12 @@ const ChiefBlog = () => {
       setIsEditing(false);
       setSelectedPost(null);
       
-      // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccessMessage(null);
       }, 3000);
     } catch (error: any) {
       console.error('Error saving post:', error);
-      setError(error.message);
+      setError(error.message || 'Failed to save post');
     }
   };
 
@@ -225,7 +265,7 @@ const ChiefBlog = () => {
     const matchesSearch = 
       post.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
       post.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      post.author?.full_name?.toLowerCase().includes(searchTerm.toLowerCase());
+      (post.author_name?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false);
       
     const matchesCategory = selectedCategory === 'all' || post.category_id === selectedCategory;
     const matchesStatus = selectedStatus === 'all' || post.status === selectedStatus;
@@ -256,6 +296,7 @@ const ChiefBlog = () => {
           <button
             onClick={handleAddPost}
             className="bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 flex items-center"
+            disabled={!isAuthenticated}
           >
             <Plus className="h-5 w-5 mr-2" />
             New Post
@@ -331,15 +372,17 @@ const ChiefBlog = () => {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Published
                 </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
+                {isAuthenticated && (
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center">
+                  <td colSpan={isAuthenticated ? 6 : 5} className="px-6 py-4 text-center">
                     <div className="flex justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-yellow-500"></div>
                     </div>
@@ -347,7 +390,7 @@ const ChiefBlog = () => {
                 </tr>
               ) : filteredPosts.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={isAuthenticated ? 6 : 5} className="px-6 py-4 text-center text-gray-500">
                     No blog posts found
                   </td>
                 </tr>
@@ -378,13 +421,13 @@ const ChiefBlog = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center text-sm text-gray-500">
                         <User className="h-4 w-4 mr-1" />
-                        {post.author?.full_name || 'Unknown'}
+                        {post.author_name}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center text-sm text-gray-500">
                         <Tag className="h-4 w-4 mr-1" />
-                        {post.category?.name || 'Uncategorized'}
+                        {post.category_name}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -402,26 +445,28 @@ const ChiefBlog = () => {
                         {formatDate(post.published_at)}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={() => window.open(`/blog/${post.slug}`, '_blank')}
-                        className="text-blue-600 hover:text-blue-900 mr-3"
-                      >
-                        <Eye className="h-5 w-5" />
-                      </button>
-                      <button
-                        onClick={() => handleEditPost(post)}
-                        className="text-yellow-600 hover:text-yellow-900 mr-3"
-                      >
-                        <Edit className="h-5 w-5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeletePost(post.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="h-5 w-5" />
-                      </button>
-                    </td>
+                    {isAuthenticated && (
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => window.open(`/blog/${post.slug}`, '_blank')}
+                          className="text-blue-600 hover:text-blue-900 mr-3"
+                        >
+                          <Eye className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => handleEditPost(post)}
+                          className="text-yellow-600 hover:text-yellow-900 mr-3"
+                        >
+                          <Edit className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeletePost(post.id)}
+                          className="text-red-600 hover:text-red-900"
+                        >
+                          <Trash2 className="h-5 w-5" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -546,51 +591,53 @@ const ChiefBlog = () => {
       )}
 
       {/* Category Management */}
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Categories</h2>
-          <div className="space-y-4">
-            {categories.map(category => (
-              <div key={category.id} className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{category.name}</p>
-                  <p className="text-xs text-gray-500">Slug: {category.slug}</p>
+      {isAuthenticated && (
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-lg font-medium text-gray-900 mb-4">Categories</h2>
+            <div className="space-y-4">
+              {categories.map(category => (
+                <div key={category.id} className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{category.name}</p>
+                    <p className="text-xs text-gray-500">Slug: {category.slug}</p>
+                  </div>
+                  <div className="flex space-x-2">
+                    <button className="text-yellow-600 hover:text-yellow-900">
+                      <Edit className="h-4 w-4" />
+                    </button>
+                    <button className="text-red-600 hover:text-red-900">
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex space-x-2">
-                  <button className="text-yellow-600 hover:text-yellow-900">
-                    <Edit className="h-4 w-4" />
-                  </button>
-                  <button className="text-red-600 hover:text-red-900">
-                    <Trash2 className="h-4 w-4" />
+              ))}
+              <button className="mt-2 text-sm text-yellow-600 hover:text-yellow-700 flex items-center">
+                <Plus className="h-4 w-4 mr-1" />
+                Add Category
+              </button>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-lg font-medium text-gray-900 mb-4">Tags</h2>
+            <div className="flex flex-wrap gap-2">
+              {tags.map(tag => (
+                <div key={tag.id} className="bg-gray-100 px-3 py-1 rounded-full text-sm text-gray-700 flex items-center">
+                  {tag.name}
+                  <button className="ml-2 text-gray-500 hover:text-red-500">
+                    <Trash2 className="h-3 w-3" />
                   </button>
                 </div>
-              </div>
-            ))}
-            <button className="mt-2 text-sm text-yellow-600 hover:text-yellow-700 flex items-center">
-              <Plus className="h-4 w-4 mr-1" />
-              Add Category
-            </button>
+              ))}
+              <button className="px-3 py-1 rounded-full text-sm bg-yellow-100 text-yellow-700 flex items-center">
+                <Plus className="h-3 w-3 mr-1" />
+                Add Tag
+              </button>
+            </div>
           </div>
         </div>
-        
-        <div className="bg-white rounded-lg shadow-sm p-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-4">Tags</h2>
-          <div className="flex flex-wrap gap-2">
-            {tags.map(tag => (
-              <div key={tag.id} className="bg-gray-100 px-3 py-1 rounded-full text-sm text-gray-700 flex items-center">
-                {tag.name}
-                <button className="ml-2 text-gray-500 hover:text-red-500">
-                  <Trash2 className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-            <button className="px-3 py-1 rounded-full text-sm bg-yellow-100 text-yellow-700 flex items-center">
-              <Plus className="h-3 w-3 mr-1" />
-              Add Tag
-            </button>
-          </div>
-        </div>
-      </div>
+      )}
     </div>
   );
 };

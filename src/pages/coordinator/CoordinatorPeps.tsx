@@ -71,16 +71,12 @@ const CoordinatorPeps = () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-
-      // Fetch user profile
+      // Fetch transactions directly without user check
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('id, full_name, points_balance')
-        .eq('id', user.id)
         .single();
+
       if (profileError) throw profileError;
 
       setUserProfile(profile);
@@ -96,7 +92,6 @@ const CoordinatorPeps = () => {
       const { data, error } = await supabase
         .from('affiliate_points')
         .select('*')
-        .eq('user_id', user.id)
         .gte('created_at', startDate.toISOString())
         .order('created_at', { ascending: false });
 

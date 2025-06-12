@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Package, 
   Plus, 
@@ -16,7 +16,8 @@ import {
   ChevronDown,
   Eye,
   EyeOff,
-  Tag
+  Tag,
+  Upload
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { format } from 'date-fns';
@@ -40,6 +41,7 @@ interface Product {
   updated_at: string;
   vendor_location?: string;
   share_date?: string;
+  vendor_id?: string;
 }
 
 interface PriceTier {
@@ -67,9 +69,46 @@ const VendorProducts = () => {
     { participants: 20, price: 0 }
   ]);
   const [vendorId, setVendorId] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    fetchVendorId();
+    const fetchVendorData = async () => {
+      try {
+        const { data: { session }, error: authError } = await supabase.auth.getSession();
+        
+        if (authError || !session) {
+          throw new Error();
+        } 
+
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profileError) throw profileError;
+        if (!profileData) throw new Error('Profile not found');
+
+        const { data: vendorData, error: vendorError } = await supabase
+          .from('vendors')
+          .select('id')
+          .eq('user_id', profileData.id)
+          .single();
+
+        if (vendorError) throw vendorError;
+        if (!vendorData) throw new Error('Vendor profile not found');
+
+        setVendorId(vendorData.id);
+      } catch (error: any) {
+        console.error('Error fetching vendor data:', error);
+        setError(error.message);
+        setIsLoading(false);
+      }
+    };
+
+    fetchVendorData();
   }, []);
 
   useEffect(() => {
@@ -77,28 +116,6 @@ const VendorProducts = () => {
       fetchProducts();
     }
   }, [vendorId]);
-
-  const fetchVendorId = async () => {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      // Fetch vendor profile
-      const { data: vendorData, error: vendorError } = await supabase
-        .from('vendors')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-        
-      if (vendorError) throw vendorError;
-      
-      setVendorId(vendorData.id);
-    } catch (error: any) {
-      console.error('Error fetching vendor ID:', error);
-      setError(error.message);
-    }
-  };
 
   const fetchProducts = async () => {
     setIsLoading(true);
@@ -144,6 +161,7 @@ const VendorProducts = () => {
       vendor_location: 'Lagos, Nigeria',
       share_date: format(new Date(), 'yyyy-MM-dd')
     });
+    setImagePreview(null);
   };
 
   const handleAddDeal = () => {
@@ -173,6 +191,7 @@ const VendorProducts = () => {
       vendor_location: 'Lagos, Nigeria',
       share_date: format(new Date(), 'yyyy-MM-dd')
     });
+    setImagePreview(null);
   };
 
   const handleEditProduct = (product: Product) => {
@@ -181,6 +200,7 @@ const VendorProducts = () => {
     setIsAddingDeal(false);
     setSelectedProduct(product);
     setEnableTiers(product.has_price_tiers);
+    setImagePreview(product.image_url || null);
     
     if (product.price_tiers) {
       try {
@@ -218,7 +238,6 @@ const VendorProducts = () => {
       setSuccessMessage('Product deleted successfully');
       fetchProducts();
       
-      // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccessMessage(null);
       }, 3000);
@@ -228,10 +247,66 @@ const VendorProducts = () => {
     }
   };
 
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) {
+      return;
+    }
+
+    const file = e.target.files[0];
+    const fileExt = file.name.split('.').pop();
+    const fileName = `${Math.random()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    setIsUploading(true);
+
+    try {
+      // Upload the file
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(filePath, file);
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      // Get the public URL
+      const { data: { publicUrl } } = supabase
+        .storage
+        .from('product-images')
+        .getPublicUrl(filePath);
+
+      // Update the selected product with the new image URL
+      if (selectedProduct) {
+        setSelectedProduct({
+          ...selectedProduct,
+          image_url: publicUrl
+        });
+      }
+
+      // Create preview
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setImagePreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    } catch (error: any) {
+      console.error('Error uploading image:', error);
+      setError('Failed to upload image');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const triggerFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!selectedProduct) return;
+    if (!selectedProduct || !vendorId) return;
     
     try {
       const productData = {
@@ -265,8 +340,8 @@ const VendorProducts = () => {
       setIsAddingDeal(false);
       setIsEditing(false);
       setSelectedProduct(null);
+      setImagePreview(null);
       
-      // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccessMessage(null);
       }, 3000);
@@ -325,7 +400,6 @@ const VendorProducts = () => {
         </div>
       </div>
 
-      {/* Success Message */}
       {successMessage && (
         <div className="mb-6 p-4 bg-green-50 rounded-lg flex items-center text-green-800">
           <CheckCircle className="h-5 w-5 mr-2" />
@@ -333,7 +407,6 @@ const VendorProducts = () => {
         </div>
       )}
 
-      {/* Error Message */}
       {error && (
         <div className="mb-6 p-4 bg-red-50 rounded-lg flex items-center text-red-800">
           <AlertTriangle className="h-5 w-5 mr-2" />
@@ -341,7 +414,6 @@ const VendorProducts = () => {
         </div>
       )}
 
-      {/* Filters */}
       <div className="mb-6">
         <button
           onClick={() => setShowFilters(!showFilters)}
@@ -399,7 +471,6 @@ const VendorProducts = () => {
         )}
       </div>
 
-      {/* Products Grid */}
       {isLoading ? (
         <div className="flex justify-center py-12">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-500"></div>
@@ -511,7 +582,6 @@ const VendorProducts = () => {
         </div>
       )}
 
-      {/* Add/Edit Product Modal */}
       {(isAddingProduct || isAddingDeal || isEditing) && selectedProduct && (
         <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -519,7 +589,6 @@ const VendorProducts = () => {
               {isEditing ? 'Edit Product' : isAddingDeal ? 'Add New Deal with Price Tiers' : 'Add New Product'}
             </h3>
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Listing Type Selection */}
               {!isEditing && (
                 <div className="sm:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Listing Type</label>
@@ -555,25 +624,43 @@ const VendorProducts = () => {
               )}
 
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                {/* Media Section */}
                 <div className="sm:col-span-2">
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Media</h3>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700">
-                        Product Image URL
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Product Image
                         <span className="text-red-500">*</span>
                       </label>
-                      <div className="mt-1 flex items-center">
-                        <input
-                          type="url"
-                          required
-                          value={selectedProduct?.image_url || ''}
-                          onChange={(e) => setSelectedProduct({ ...selectedProduct, image_url: e.target.value })}
-                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
-                          placeholder="https://example.com/image.jpg"
-                        />
-                        <ImageIcon className="h-5 w-5 text-gray-400 ml-2" />
+                      <input
+                        type="file"
+                        ref={fileInputRef}
+                        onChange={handleImageUpload}
+                        accept="image/*"
+                        className="hidden"
+                      />
+                      <div className="mt-1 flex flex-col items-start">
+                        <button
+                          type="button"
+                          onClick={triggerFileInput}
+                          disabled={isUploading}
+                          className="px-4 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 flex items-center mb-2"
+                        >
+                          <Upload className="h-4 w-4 mr-2" />
+                          {isUploading ? 'Uploading...' : 'Upload Image'}
+                        </button>
+                        {(imagePreview || selectedProduct.image_url) && (
+                          <div className="mt-2 relative">
+                            <img
+                              src={imagePreview || selectedProduct.image_url || ''}
+                              alt="Preview"
+                              className="h-32 w-32 object-cover rounded-md"
+                            />
+                          </div>
+                        )}
+                        {!selectedProduct.image_url && !imagePreview && (
+                          <p className="text-sm text-gray-500 mt-1">No image selected</p>
+                        )}
                       </div>
                     </div>
                     <div>
@@ -594,7 +681,6 @@ const VendorProducts = () => {
                   </div>
                 </div>
 
-                {/* Basic Information */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700">
                     Product Name
@@ -663,7 +749,6 @@ const VendorProducts = () => {
                   </div>
                 </div>
 
-                {/* Pricing and Quantity */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700">
                     Base Price (₦)
@@ -769,7 +854,6 @@ const VendorProducts = () => {
                   />
                 </div>
 
-                {/* Group Buy Price Tiers */}
                 {(isAddingDeal || (isEditing && selectedProduct?.has_price_tiers)) && (
                   <div className="sm:col-span-2">
                     <div className="flex items-center space-x-2">
@@ -860,6 +944,7 @@ const VendorProducts = () => {
                     setIsEditing(false);
                     setSelectedProduct(null);
                     setEnableTiers(false);
+                    setImagePreview(null);
                   }}
                   className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
                 >
@@ -867,7 +952,8 @@ const VendorProducts = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600"
+                  disabled={isUploading || !selectedProduct.image_url}
+                  className={`px-4 py-2 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 ${(isUploading || !selectedProduct.image_url) ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {isEditing ? 'Update' : 'Create'}
                 </button>

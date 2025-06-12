@@ -65,7 +65,44 @@ const VendorDelivery = () => {
   const [isViewingDetails, setIsViewingDetails] = useState(false);
 
   useEffect(() => {
-    fetchVendorId();
+    const fetchVendorData = async () => {
+      try {
+        // Check if user is authenticated
+        const { data: { session }, error: authError } = await supabase.auth.getSession();
+        
+        if (authError || !session) {
+          throw new Error();
+        }
+
+        // Fetch user profile from public.profiles table
+        const { data: profileData, error: profileError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profileError) throw profileError;
+        if (!profileData) throw new Error('Profile not found');
+
+        // Check if user is a vendor
+        const { data: vendorData, error: vendorError } = await supabase
+          .from('vendors')
+          .select('id')
+          .eq('user_id', profileData.id)
+          .single();
+
+        if (vendorError) throw vendorError;
+        if (!vendorData) throw new Error('Vendor profile not found');
+
+        setVendorId(vendorData.id);
+      } catch (error: any) {
+        console.error('Error fetching vendor data:', error);
+        setError(error.message);
+        setIsLoading(false);
+      }
+    };
+
+    fetchVendorData();
     generateWeekDates();
   }, []);
 
@@ -74,28 +111,6 @@ const VendorDelivery = () => {
       fetchDeliveries();
     }
   }, [vendorId, selectedDate]);
-
-  const fetchVendorId = async () => {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      // Fetch vendor profile
-      const { data: vendorData, error: vendorError } = await supabase
-        .from('vendors')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-        
-      if (vendorError) throw vendorError;
-      
-      setVendorId(vendorData.id);
-    } catch (error: any) {
-      console.error('Error fetching vendor ID:', error);
-      setError(error.message);
-    }
-  };
 
   const generateWeekDates = () => {
     const start = startOfWeek(selectedDate, { weekStartsOn: 1 }); // Start from Monday
@@ -255,7 +270,6 @@ const VendorDelivery = () => {
         });
       }
       
-      // Clear success message after 3 seconds
       setTimeout(() => {
         setSuccessMessage(null);
       }, 3000);

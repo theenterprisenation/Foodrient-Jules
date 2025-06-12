@@ -113,7 +113,7 @@ const Navbar = () => {
                   className="flex items-center bg-yellow-500 text-white px-4 py-2 rounded-full hover:bg-yellow-600 transition-colors"
                 >
                   <User className="h-4 w-4 mr-1" />
-                  <span className="text-sm">Sign In / Sign Up</span>
+                  <span className="text-sm">Sign In</span>
                 </Link>
               </div>
             ) : (

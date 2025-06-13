@@ -8,6 +8,7 @@ import { useSafeLoaderTimeout } from '../../hooks/useSafeLoaderTimeout';
 
 // Dashboard Pages
 import CoordinatorOverview from '../coordinator/CoordinatorOverview';
+import CustomerManagementPage from '../admin/CustomerManagementPage'; // Added import
 import CoordinatorManagers from '../coordinator/CoordinatorManagers';
 import CoordinatorVendors from '../coordinator/CoordinatorVendors';
 import CoordinatorMessaging from '../coordinator/CoordinatorMessaging';
@@ -84,6 +85,7 @@ const CoordinatorDashboard = () => {
           <Route path="analytics" element={<CoordinatorAnalytics />} />
           <Route path="settings" element={<CoordinatorSettings />} />
           <Route path="peps" element={<CoordinatorPeps />} />
+          <Route path="customer-management" element={<CustomerManagementPage />} /> {/* Added route */}
           <Route path="*" element={<Navigate to="/coordinator/dashboard" replace />} />
         </Routes>
       </DashboardLayout>

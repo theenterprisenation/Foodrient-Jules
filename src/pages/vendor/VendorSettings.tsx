@@ -38,7 +38,10 @@ const VendorSettings = () => {
     description: '',
     logo_url: '',
     contact_email: '',
-    contact_phone: ''
+    contact_phone: '',
+    account_name: '', // Added
+    account_number: '', // Added
+    bank_name: '' // Added
   });
   
   const [passwordData, setPasswordData] = useState({
@@ -104,7 +107,10 @@ const VendorSettings = () => {
           description: vendorData.description || '',
           logo_url: vendorData.logo_url || '',
           contact_email: vendorData.contact_email || profileData?.email || user.email || '',
-          contact_phone: vendorData.contact_phone || profileData?.phone_number || ''
+          contact_phone: vendorData.contact_phone || profileData?.phone_number || '',
+          account_name: vendorData.account_name || '', // Added
+          account_number: vendorData.account_number || '', // Added
+          bank_name: vendorData.bank_name || '' // Added
         });
       } else {
         // Initialize empty vendor profile
@@ -114,7 +120,10 @@ const VendorSettings = () => {
           description: '',
           logo_url: '',
           contact_email: profileData?.email || user.email || '',
-          contact_phone: profileData?.phone_number || ''
+          contact_phone: profileData?.phone_number || '',
+          account_name: '', // Added
+          account_number: '', // Added
+          bank_name: '' // Added
         });
       }
     } catch (error: any) {
@@ -154,6 +163,9 @@ const VendorSettings = () => {
         logo_url: vendorProfile.logo_url,
         contact_email: vendorProfile.contact_email,
         contact_phone: vendorProfile.contact_phone,
+        account_name: vendorProfile.account_name, // Added
+        account_number: vendorProfile.account_number, // Added
+        bank_name: vendorProfile.bank_name, // Added
         updated_at: new Date().toISOString()
       };
 
@@ -490,6 +502,45 @@ const VendorSettings = () => {
                       value={vendorProfile.contact_phone}
                       onChange={(e) => setVendorProfile({ ...vendorProfile, contact_phone: e.target.value })}
                       className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
+                    />
+                  </div>
+
+                  {/* Bank Account Details Section */}
+                  <h3 className="text-md font-semibold text-gray-800 pt-6 pb-2 border-b border-gray-200">Bank Account Details</h3>
+                  <p className="mt-1 text-xs text-gray-500 mb-4">
+                    Provide your bank account details for payouts. This information is kept secure.
+                  </p>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Bank Account Name</label>
+                    <input
+                      type="text"
+                      value={vendorProfile.account_name}
+                      onChange={(e) => setVendorProfile({ ...vendorProfile, account_name: e.target.value })}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
+                      placeholder="e.g., Your Business Name Ltd."
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Bank Account Number</label>
+                    <input
+                      type="text"
+                      value={vendorProfile.account_number}
+                      onChange={(e) => setVendorProfile({ ...vendorProfile, account_number: e.target.value })}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
+                      placeholder="e.g., 1234567890"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Bank Name</label>
+                    <input
+                      type="text"
+                      value={vendorProfile.bank_name}
+                      onChange={(e) => setVendorProfile({ ...vendorProfile, bank_name: e.target.value })}
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-yellow-500 focus:ring-yellow-500"
+                      placeholder="e.g., Global Trust Bank"
                     />
                   </div>
                   

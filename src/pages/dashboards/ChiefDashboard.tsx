@@ -8,6 +8,7 @@ import { useSafeLoaderTimeout } from '../../hooks/useSafeLoaderTimeout';
 
 // Dashboard Pages
 import ChiefOverview from '../chief/ChiefOverview';
+import CustomerManagementPage from '../admin/CustomerManagementPage'; // Added import
 import ChiefManagers from '../chief/ChiefManagers';
 import ChiefBlog from '../chief/ChiefBlog';
 import ChiefAdverts from '../chief/ChiefAdverts';
@@ -89,7 +90,8 @@ const ChiefDashboard = () => {
           <Route path="reviews" element={<ChiefReviews />} />
           <Route path="analytics" element={<ChiefAnalytics />} />
           <Route path="settings" element={<ChiefSettings />} />
-          <Route path="*" element={<Navigate to="/chief/overview\" replace />} />
+          <Route path="customer-management" element={<CustomerManagementPage />} /> {/* Added route */}
+          <Route path="*" element={<Navigate to="/chief/overview" replace />} />
         </Routes>
       </DashboardLayout>
     </ErrorBoundary>

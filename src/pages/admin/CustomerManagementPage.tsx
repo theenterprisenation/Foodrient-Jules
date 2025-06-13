@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { supabase } from '../../supabaseClient';
+import { supabase } from '../../lib/supabase';
 import { UserRoleEnum, ALL_USER_ROLES } from '../../types/UserRoleEnum';
 import { useAuth } from '../../components/AuthProvider'; // Assuming path is correct
 
